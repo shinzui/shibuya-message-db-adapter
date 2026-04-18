@@ -42,16 +42,19 @@ module Shibuya.Adapter.MessageDb (
     CheckpointInterval (..),
     DlqStrategy (..),
     MaxRetryBufferSize (..),
+    ConsumerGroupConfig (..),
     SubscriptionName,
     defaultConfig,
 )
 where
 
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, writeTVar)
+import Control.Exception (throwIO)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef (newIORef)
 import Data.Maybe (fromMaybe)
+import Data.Text qualified as Text
 import Data.Time.Clock (
     NominalDiffTime,
     diffUTCTime,
@@ -69,6 +72,7 @@ import Shibuya.Adapter.MessageDb.Config (
     BatchSize (..),
     CategoryStream (..),
     CheckpointInterval (..),
+    ConsumerGroupConfig (..),
     DlqStrategy (..),
     DrainTimeout (..),
     MaxRetryBufferSize (..),
@@ -76,6 +80,7 @@ import Shibuya.Adapter.MessageDb.Config (
     PollInterval (..),
     SubscriptionName,
     defaultConfig,
+    validateConsumerGroup,
  )
 import Shibuya.Adapter.MessageDb.Internal (
     messageDbSource,
@@ -116,6 +121,9 @@ messageDbAdapter ::
     MessageDbAdapterConfig ->
     Eff es (Adapter es Mdb.Message)
 messageDbAdapter config = do
+    case validateConsumerGroup config.consumerGroup of
+        Right () -> pure ()
+        Left msg -> liftIO (throwIO (userError (Text.unpack msg)))
     mStored <- getLastCheckpoint config.subscriptionName
     let stored = fromMaybe (Mdb.GlobalPosition 0) mStored
         Mdb.GlobalPosition storedN = stored

@@ -52,14 +52,14 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 1: Config extension and startup validation
 
-- [ ] Add `ConsumerGroupConfig { groupSize, member }` and `Show`/`Eq` instances to
-      `Shibuya.Adapter.MessageDb.Config`.
-- [ ] Extend `MessageDbAdapterConfig` with `consumerGroup :: Maybe ConsumerGroupConfig`,
-      defaulting to `Nothing` in `defaultConfig`.
-- [ ] Add startup validation `validateConsumerGroup :: Maybe ConsumerGroupConfig -> Either Text ()`
-      enforcing `groupSize >= 1` and `0 <= member < groupSize`.
-- [ ] Plumb validation into `messageDbAdapter` so it fails fast via `throwIO` on
-      `IOE`.
+- [x] Add `ConsumerGroupConfig { groupSize, member }` and `Show`/`Eq` instances to
+      `Shibuya.Adapter.MessageDb.Config`. (2026-04-18)
+- [x] Extend `MessageDbAdapterConfig` with `consumerGroup :: Maybe ConsumerGroupConfig`,
+      defaulting to `Nothing` in `defaultConfig`. (2026-04-18)
+- [x] Add startup validation `validateConsumerGroup :: Maybe ConsumerGroupConfig -> Either Text ()`
+      enforcing `groupSize >= 1` and `0 <= member < groupSize`. (2026-04-18)
+- [x] Plumb validation into `messageDbAdapter` so it fails fast via `throwIO` on
+      `IOE`. (2026-04-18)
 
 ### Milestone 2: Hash function sourcing
 

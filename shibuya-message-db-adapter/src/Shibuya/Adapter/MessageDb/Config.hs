@@ -9,11 +9,14 @@ module Shibuya.Adapter.MessageDb.Config (
     SubscriptionName,
     DlqStrategy (..),
     MaxRetryBufferSize (..),
+    ConsumerGroupConfig (..),
     defaultConfig,
+    validateConsumerGroup,
 )
 where
 
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Time.Clock (NominalDiffTime)
 import GHC.Generics (Generic)
 import MessageDb.CheckpointStore.Effectful (SubscriptionName)
@@ -96,6 +99,26 @@ existing taxonomy and keeps progress flowing.
 newtype MaxRetryBufferSize = MaxRetryBufferSize {unMaxRetryBufferSize :: Int}
     deriving stock (Eq, Show, Generic)
 
+{- | Consumer-group partitioning configuration.
+
+A consumer group splits a single logical category across @groupSize@
+cooperating adapter processes, each addressed by a unique @member@
+index in @[0, groupSize)@. Routing is deterministic: a message with
+category @C@ lands on the member whose index equals
+@Murmur3-64(C) mod groupSize@. See @categoryPartition@ in
+"Shibuya.Adapter.MessageDb.Internal".
+
+Processes coordinate only through shared configuration — no
+inter-process chatter — and each member keeps its own durable
+checkpoint under a partition-scoped subscription name (see
+@partitionedSubscriptionName@).
+-}
+data ConsumerGroupConfig = ConsumerGroupConfig
+    { groupSize :: !Int
+    , member :: !Int
+    }
+    deriving stock (Eq, Show, Generic)
+
 {- | Configuration for a single message-db category polling loop.
 
 @subscriptionName@ keys this adapter's checkpoint row in the
@@ -112,6 +135,7 @@ data MessageDbAdapterConfig = MessageDbAdapterConfig
     , checkpointInterval :: !CheckpointInterval
     , dlqStrategy :: !DlqStrategy
     , maxRetryBufferSize :: !MaxRetryBufferSize
+    , consumerGroup :: !(Maybe ConsumerGroupConfig)
     }
     deriving stock (Eq, Show, Generic)
 
@@ -138,4 +162,27 @@ defaultConfig cat sub =
         , checkpointInterval = CheckpointInterval 1
         , dlqStrategy = DlqSkipAndLog
         , maxRetryBufferSize = MaxRetryBufferSize 1000
+        , consumerGroup = Nothing
         }
+
+{- | Validate a 'ConsumerGroupConfig'.
+
+Enforces @groupSize >= 1@ and @0 <= member < groupSize@. Returns
+@Right ()@ for 'Nothing' (partitioning disabled) and for any valid
+group. On failure returns a descriptive error suitable for the adapter
+to throw via 'System.IO.Error.userError'.
+-}
+validateConsumerGroup :: Maybe ConsumerGroupConfig -> Either Text ()
+validateConsumerGroup Nothing = Right ()
+validateConsumerGroup (Just ConsumerGroupConfig{groupSize, member})
+    | groupSize < 1 =
+        Left $
+            "ConsumerGroupConfig.groupSize must be >= 1, got "
+                <> Text.pack (show groupSize)
+    | member < 0 || member >= groupSize =
+        Left $
+            "ConsumerGroupConfig.member must satisfy 0 <= member < groupSize, got member="
+                <> Text.pack (show member)
+                <> ", groupSize="
+                <> Text.pack (show groupSize)
+    | otherwise = Right ()
