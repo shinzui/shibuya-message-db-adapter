@@ -100,14 +100,21 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 5: Config module and adapter skeleton
 
-- [ ] Implement `Shibuya.Adapter.MessageDb.Config` with `MessageDbAdapterConfig`,
-      `defaultConfig`, and the newtype wrappers listed under *Interfaces and Dependencies*.
-- [ ] Implement `Shibuya.Adapter.MessageDb.Internal.messageDbSource` — a Streamly stream
-      that repeatedly calls `getCategoryMessages` and emits `Ingested es MessageDb.Message`
-      values with a stub ack handle.
-- [ ] Implement `Shibuya.Adapter.MessageDb.messageDbAdapter` returning
-      `Adapter es MessageDb.Message`.
-- [ ] Compile with `cabal build shibuya-message-db-adapter`.
+- [x] Implement `Shibuya.Adapter.MessageDb.Config` with `MessageDbAdapterConfig`,
+      `defaultConfig`, and the newtype wrappers (`CategoryStream`, `BatchSize`,
+      `PollInterval`, `DrainTimeout`). (2026-04-18)
+- [x] Implement `Shibuya.Adapter.MessageDb.Internal.messageDbSource` — a Streamly
+      stream that repeatedly calls `getCategoryMessages`, flattens each non-empty
+      batch, and emits `Ingested es MessageDb.Message` values with a stub ack
+      handle. The source is gated by a shutdown `TVar` via `takeWhileM`. See the
+      Surprises & Discoveries entry on `GlobalPosition` for the position-cursor
+      decision. (2026-04-18)
+- [x] Implement `Shibuya.Adapter.MessageDb.messageDbAdapter` returning
+      `Adapter es MessageDb.Message`. Allocates the shutdown `TVar` and two
+      `IORef`s (next-to-fetch position + acked high-watermark) at construction
+      time. (2026-04-18)
+- [x] Compile with `cabal build shibuya-message-db-adapter` — clean build, no
+      warnings. (2026-04-18)
 
 ### Milestone 6: Demo executable and end-to-end verification
 
@@ -139,6 +146,16 @@ here, even if it requires splitting a partially completed task into two ("done" 
   `Ingested { envelope, ack }`, but the real record also has
   `lease :: !(Maybe (Lease es))`. The kafka adapter passes `lease = Nothing`.
   We will do the same — message-db has no visibility-timeout concept.
+
+- **2026-04-18 — The position cursor in @GetCategoryMessagesQuery@ is
+  `GlobalPosition`, not `MessagePosition`.** The plan's M5 recipe said the
+  polling loop reads and advances `IORef MessagePosition`, but
+  `getCategoryMessages` takes a `globalPositionStart :: Maybe GlobalPosition`
+  — message-db's store-wide ordinal — not the stream-local `MessagePosition`.
+  The adapter therefore tracks `IORef GlobalPosition`. This does not affect the
+  shape of the public API (handlers still see the whole @Message@) but the
+  internal signatures in @Shibuya.Adapter.MessageDb.Internal@ diverge from the
+  plan text.
 
 
 ## Decision Log
