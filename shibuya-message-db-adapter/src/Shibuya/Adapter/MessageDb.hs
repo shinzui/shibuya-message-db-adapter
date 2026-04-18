@@ -12,8 +12,9 @@ EP-2 adds durable checkpoints via the @message-db-checkpoint-store@
 package and contiguous-prefix ack accounting via
 'Shibuya.Adapter.MessageDb.Internal.InflightState'. On start the
 adapter seeds its fetch position from the persisted checkpoint; a
-background thread flushes the advancing prefix to the store; and M4
-wires graceful shutdown on top.
+background thread flushes the advancing prefix to the store; and
+'shutdown' drains inflight work and does one final flush so the
+checkpoint reflects all successfully-acked messages.
 
 == Example usage
 
@@ -44,13 +45,19 @@ module Shibuya.Adapter.MessageDb (
 )
 where
 
-import Control.Concurrent.STM (atomically, newTVarIO, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, newTVarIO, writeTVar)
+import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef (newIORef)
 import Data.Maybe (fromMaybe)
+import Data.Time.Clock (
+    NominalDiffTime,
+    diffUTCTime,
+    getCurrentTime,
+ )
 import Effectful (Eff, IOE, (:>))
-import Effectful.Concurrent (Concurrent, forkIO)
-import MessageDb.CheckpointStore.Effectful (CheckpointStore, getLastCheckpoint)
+import Effectful.Concurrent (Concurrent, forkIO, threadDelay)
+import MessageDb.CheckpointStore.Effectful (CheckpointStore, getLastCheckpoint, storeCheckpoint)
 import MessageDb.Effectful (MessageDb)
 import MessageDb.Message qualified as Mdb
 import Shibuya.Adapter (Adapter (..))
@@ -66,10 +73,16 @@ import Shibuya.Adapter.MessageDb.Config (
  )
 import Shibuya.Adapter.MessageDb.Internal (
     messageDbSource,
+    nominalToMicros,
     parseCategoryStream,
     runCheckpointPersister,
  )
-import Shibuya.Adapter.MessageDb.Internal.InflightState (newInflightState)
+import Shibuya.Adapter.MessageDb.Internal.InflightState (
+    InflightState,
+    advanceCheckpointTo,
+    inflightSize,
+    newInflightState,
+ )
 
 {- | Build a message-db adapter for a single category stream.
 
@@ -80,10 +93,11 @@ positions are 1-indexed and @get_category_messages@ filters
 contiguous prefix of completed acks to the store every
 @checkpointInterval@.
 
-M4 replaces the trivial shutdown (just flipping the signal) with a
-drain-then-final-flush so the last tick of work is durable; for now,
-shutdown just stops new work and leaves the persister to flush on its
-next tick.
+On 'shutdown' the adapter flips the shared shutdown 'TVar' (which
+stops both the source stream and the persister), waits up to
+@drainTimeout@ for any in-flight messages to finalize, does a final
+'advanceCheckpointTo' + 'storeCheckpoint', and gives the persister
+one extra @checkpointInterval@ to notice the signal before returning.
 -}
 messageDbAdapter ::
     (MessageDb :> es, CheckpointStore :> es, Concurrent :> es, IOE :> es) =>
@@ -101,6 +115,7 @@ messageDbAdapter config = do
     let parsedCat = parseCategoryStream config.category
         CategoryStream catText = config.category
         CheckpointInterval ci = config.checkpointInterval
+        DrainTimeout dto = config.drainTimeout
     _ <-
         forkIO $
             runCheckpointPersister
@@ -115,5 +130,52 @@ messageDbAdapter config = do
             , source =
                 messageDbSource shutdownSignal positionRef ackedRef inflight config
             , shutdown =
-                liftIO (atomically (writeTVar shutdownSignal True))
+                doShutdown
+                    shutdownSignal
+                    inflight
+                    config.subscriptionName
+                    parsedCat
+                    dto
+                    ci
             }
+
+{- | Drain inflight work and flush the final checkpoint.
+
+1. Flip @shutdownSignal@ so the source and persister stop at their
+   next iteration.
+2. Poll 'inflightSize' every 10 ms until the ledger has no pending
+   outcomes, or until @drainTimeout@ elapses.
+3. Call 'advanceCheckpointTo' once; if it returned a new position,
+   'storeCheckpoint' it.
+4. Wait one extra @checkpointInterval@ so the persister has time to
+   observe the shutdown flag and exit.
+-}
+doShutdown ::
+    ( CheckpointStore :> es
+    , Concurrent :> es
+    , IOE :> es
+    ) =>
+    TVar Bool ->
+    InflightState ->
+    SubscriptionName ->
+    Mdb.CategoryStream ->
+    NominalDiffTime ->
+    NominalDiffTime ->
+    Eff es ()
+doShutdown shutdownSignal inflight subName cat drainTimeout interval = do
+    liftIO $ atomically $ writeTVar shutdownSignal True
+    drainStart <- liftIO getCurrentTime
+    drainLoop drainStart
+    mFinal <- liftIO $ atomically $ advanceCheckpointTo inflight
+    case mFinal of
+        Just pos -> storeCheckpoint subName cat pos
+        Nothing -> pure ()
+    threadDelay (nominalToMicros interval)
+  where
+    drainLoop start = do
+        n <- liftIO $ atomically $ inflightSize inflight
+        unless (n == 0) $ do
+            now <- liftIO getCurrentTime
+            unless (diffUTCTime now start >= drainTimeout) $ do
+                threadDelay 10_000
+                drainLoop start

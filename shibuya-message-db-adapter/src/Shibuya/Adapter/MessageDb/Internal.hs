@@ -14,7 +14,7 @@ module Shibuya.Adapter.MessageDb.Internal (
 )
 where
 
-import Control.Concurrent.STM (TVar, atomically, readTVarIO)
+import Control.Concurrent.STM (TVar, atomically, readTVarIO, writeTVar)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Function ((&))
@@ -105,17 +105,25 @@ Mapping:
   with a configurable DLQ strategy; for now, skip-and-advance so a
   poison message does not stall the whole subscription)
 * 'AckRetry' → 'AckRetry' (pins the contiguous prefix)
-* 'AckHalt' → 'AckRetry' (the halting message never completes; M4
-  extends this branch to also flip the shutdown signal)
+* 'AckHalt' → 'AckRetry' plus flips @shutdownSignal@ to 'True' in the
+  same STM transaction, so the adapter begins draining and the
+  halting position is guaranteed to be preserved in the ledger when
+  'Shibuya.Adapter.MessageDb.messageDbAdapter'@.shutdown@ does its
+  final flush
 -}
 mkAckHandle ::
     (IOE :> es) =>
     InflightState ->
+    TVar Bool ->
     Mdb.GlobalPosition ->
     AckHandle es
-mkAckHandle inflight pos =
+mkAckHandle inflight shutdownSignal pos =
     AckHandle $ \decision ->
-        liftIO $ atomically $ recordAckResult inflight pos (outcomeOf decision)
+        liftIO $ atomically $ do
+            recordAckResult inflight pos (outcomeOf decision)
+            case decision of
+                AckHalt _ -> writeTVar shutdownSignal True
+                _ -> pure ()
   where
     outcomeOf :: AckDecision -> AckOutcome
     outcomeOf = \case
@@ -136,14 +144,15 @@ mechanism.
 mkIngested ::
     (IOE :> es) =>
     InflightState ->
+    TVar Bool ->
     Mdb.Message ->
     Eff es (Ingested es Mdb.Message)
-mkIngested inflight msg = do
+mkIngested inflight shutdownSignal msg = do
     liftIO $ atomically $ recordIngested inflight msg.globalPosition
     pure
         Ingested
             { envelope = messageToEnvelope msg
-            , ack = mkAckHandle inflight msg.globalPosition
+            , ack = mkAckHandle inflight shutdownSignal msg.globalPosition
             , lease = Nothing
             }
 
@@ -186,7 +195,7 @@ messageDbSource shutdownSignal positionRef ackedRef inflight config =
         liftIO $
             atomicModifyIORef' ackedRef $ \current ->
                 (max current msg.globalPosition, ())
-        mkIngested inflight msg
+        mkIngested inflight shutdownSignal msg
 
     pollBatch :: Eff es (Vector Mdb.Message)
     pollBatch = do

@@ -97,15 +97,17 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 4: Graceful shutdown final flush
 
-- [ ] Modify `messageDbAdapter`'s `shutdown` field so that it (a) signals the
-      existing shutdown `TVar`, (b) waits for in-flight messages to drain up to
-      `drainTimeout`, (c) does a final `advanceCheckpointTo` and, if that yielded a
-      new position, a final `storeCheckpoint` call, and (d) waits for the background
-      thread to exit.
-- [ ] On `AckHalt`, ensure the checkpoint does not advance past the halting
-      message's position; the final-flush logic already handles the successfully-advanced
-      prefix.
-- [ ] Confirm `cabal build shibuya-message-db-adapter` succeeds.
+- [x] `messageDbAdapter`'s `shutdown` is now `doShutdown`: flips the shutdown
+      `TVar`, polls `inflightSize` at 10 ms intervals until drained or
+      `drainTimeout` elapses, calls `advanceCheckpointTo` + `storeCheckpoint`
+      once more, and waits one `checkpointInterval` for the persister thread
+      to notice the flag. (2026-04-18)
+- [x] `mkAckHandle` now takes the `shutdownSignal` `TVar` and, on `AckHalt`,
+      flips it to `True` atomically with the `recordAckResult` call. The
+      halting position is already mapped to `AckRetry` so the checkpoint
+      cannot advance past it. (2026-04-18)
+- [x] `cabal build shibuya-message-db-adapter` succeeds; `cabal test` all 10
+      tests pass. (2026-04-18)
 
 ### Milestone 5: Integration test
 
