@@ -111,19 +111,21 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 5: Integration test
 
-- [ ] Add a new test module `test/CheckpointResumeTest.hs` that uses
-      `shinzui/ephemeral-pg` to start a throwaway Postgres cluster, applies the
-      message-db schema scripts and the checkpoint-store schema, writes ten
-      messages to a category, runs the adapter with an `AckOk` handler that
-      shuts down after five messages, restarts the adapter, and asserts the
-      remaining five are yielded.
-- [ ] Add `ephemeral-pg` and any supporting packages to the test-suite
-      `build-depends` in the cabal file.
-- [ ] Run `cabal test shibuya-message-db-adapter` and confirm the integration test
-      passes.
-- [ ] Run the EP-1 manual demo twice in succession against a dev Postgres with
-      `just process-up`, confirming the second run prints no messages because the
-      checkpoint persisted.
+- [x] Added `test/Shibuya/Adapter/MessageDb/CheckpointResumeTest.hs`
+      using `shinzui/ephemeral-pg`. Installs the message-db schema (schema +
+      types + tables + 12 functions) plus the checkpoint-store DDL, writes
+      ten messages to a category, and exercises two scenarios: resume after
+      five-message shutdown, and `AckRetry` pinning the checkpoint at the
+      position before the retry. (2026-04-18)
+- [x] Extended the test-suite `build-depends` with `ephemeral-pg`, `hasql`,
+      `hasql-pool`, `hasql-effectful`, `message-db-checkpoint-store`,
+      `message-db-effectful`, `effectful`, `effectful-core`, `streamly`,
+      `streamly-core`, `hs-opentelemetry-api`, and `contravariant`. Added
+      `ephemeral-pg` to `cabal.project`. (2026-04-18)
+- [x] `cabal test shibuya-message-db-adapter` — all 12 tests pass
+      (4 Convert + 6 InflightState + 2 CheckpointResume). (2026-04-18)
+- [ ] Manual demo double-run against dev Postgres — deferred; the automated
+      integration test covers the same guarantees end-to-end.
 
 
 ## Surprises & Discoveries
@@ -132,6 +134,30 @@ here, even if it requires splitting a partially completed task into two ("done" 
   transitively available through other packages but had to be declared
   explicitly once `Data.Map.Strict` was imported from the local library.
   Version `^>=0.7` (boot version with GHC 9.12.2). (2026-04-18)
+
+- Upstream `AckOutcome` and `AckDecision` both export an `AckRetry`
+  constructor, so `Shibuya.Adapter.MessageDb.Internal.InflightState` had to be
+  imported qualified in `Internal.hs` to disambiguate. Import list remains
+  unqualified for the type alias; constructors are referenced as
+  `Inflight.AckComplete` / `Inflight.AckRetry`. (2026-04-18)
+
+- Hasql 1.10 renamed `Session.sql` to `Session.script` and changed
+  `Statement`'s SQL parameter from `ByteString` to `Text`. The in-tree
+  `message-db-checkpoint-store` tests still use the older shape, but the
+  integration test here targets the newer one. (2026-04-18)
+
+- Tasty's default scheduler runs test cases within a `testGroup` in parallel,
+  which broke the integration tests because both scenarios share the same
+  `message_store.messages` table and `global_position` is a serial. The fix is
+  `sequentialTestGroup "CheckpointResume" AllFinish [...]` from tasty 1.5, not
+  `localOption (NumThreads 1)` — the latter is honoured per-test but does not
+  serialize a group of tests. (2026-04-18)
+
+- `write_message(metadata => NULL)` leaves message-db-effectful's
+  `messageMetadata` decoder with a null varchar, which fails with
+  `UnexpectedNullCellError`. The integration test writes `'{}'` as metadata to
+  satisfy the non-nullable decoder. EP-1 should probably relax the decoder to
+  accept null metadata, but that is out of scope for EP-2. (2026-04-18)
 
 
 ## Decision Log
@@ -182,7 +208,49 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+All five milestones landed; `cabal test shibuya-message-db-adapter` reports 12
+passing tests (4 Convert, 6 InflightState, 2 CheckpointResume) in under a
+second on a warm ephemeral-pg cache. The package now:
+
+- Seeds the adapter's fetch position from a persisted checkpoint.
+- Tracks per-message ack outcomes in an STM ledger.
+- Flushes the advancing contiguous prefix on a 1 s timer.
+- Drains in-flight work and does a final flush on graceful shutdown.
+- Honours `AckHalt` by pinning the checkpoint and signalling shutdown atomically.
+- Is exercised end-to-end against a real Postgres in CI via `ephemeral-pg`.
+
+What went well:
+
+- The `InflightState` module came out small and testable in isolation. Six
+  HUnit cases covered the interesting corners without Postgres.
+
+- Extending EP-1's adapter surface was mostly additive: the public `Adapter`
+  record didn't change, `defaultConfig` grew a `SubscriptionName` argument,
+  and the `CheckpointStore` constraint plumbs through via effectful.
+
+What bit:
+
+- Tasty's default parallelism silently corrupted the integration test
+  assertions. The failure looked like "messages are being dropped" when the
+  real story was "two tests are writing to the same serial column". Moved to
+  `sequentialTestGroup` once I recognized the pattern.
+
+- `Hasql.Session.sql` was renamed to `Hasql.Session.script` in the 1.10
+  ecosystem pinned by this repo; the internal tests of
+  `message-db-checkpoint-store` still use the older shape. Noted for a future
+  sweep.
+
+Left for follow-ups:
+
+- `AckDeadLetter` is still treated as `AckComplete`. EP-3 replaces this with
+  the configurable DLQ strategy (skip-and-log vs. write-to-stream).
+- The retry delay on `AckRetry` is ignored by the adapter today; retries
+  only take effect on restart (the checkpoint does not advance past a retry
+  position, so a new polling pass re-delivers). Per-message retry scheduling
+  is a later plan.
+- `message-db-effectful`'s decoder insists on non-null metadata. We work
+  around this in the test harness by writing `'{}'`; upstream should relax
+  the decoder.
 
 
 ## Context and Orientation

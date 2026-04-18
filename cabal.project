@@ -8,6 +8,7 @@ packages:
   /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-hs
   /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-effectful
   /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-checkpoint-store
+  /Users/shinzui/Keikaku/bokuno/ephemeral-pg-project/ephemeral-pg
   /Users/shinzui/Keikaku/work/libraries/haskell/tan-effectful/hasql-effectful
   /Users/shinzui/Keikaku/work/libraries/haskell/tan-event-source
   /Users/shinzui/Keikaku/work/libraries/haskell/tan-commons/tan-commons-config

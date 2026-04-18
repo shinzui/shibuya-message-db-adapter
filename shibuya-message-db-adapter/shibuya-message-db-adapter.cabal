@@ -129,6 +129,7 @@ test-suite shibuya-message-db-adapter-test
     OverloadedStrings
 
   other-modules:
+    Shibuya.Adapter.MessageDb.CheckpointResumeTest
     Shibuya.Adapter.MessageDb.ConvertTest
     Shibuya.Adapter.MessageDb.InflightStateTest
 
@@ -136,12 +137,24 @@ test-suite shibuya-message-db-adapter-test
     , aeson
     , base
     , bytestring
+    , contravariant                ^>=1.5
+    , effectful
+    , effectful-core
+    , ephemeral-pg                 ^>=0.2
+    , hasql
+    , hasql-effectful
+    , hasql-pool
+    , hs-opentelemetry-api
+    , message-db-checkpoint-store
+    , message-db-effectful
     , message-db-hs
     , shibuya-core
     , shibuya-message-db-adapter
     , stm
-    , tasty                       ^>=1.5
-    , tasty-hunit                 ^>=0.10
+    , streamly
+    , streamly-core
+    , tasty                        ^>=1.5
+    , tasty-hunit                  ^>=0.10
     , text
     , time
     , uuid
