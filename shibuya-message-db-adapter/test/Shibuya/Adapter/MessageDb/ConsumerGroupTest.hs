@@ -30,6 +30,7 @@ source never re-evaluates its predicate when the stream is empty.
 -}
 module Shibuya.Adapter.MessageDb.ConsumerGroupTest (tests) where
 
+import Contravariant.Extras (contrazip5)
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async qualified as Async
 import Control.Concurrent.STM (
@@ -41,7 +42,6 @@ import Control.Concurrent.STM (
  )
 import Control.Exception (throwIO)
 import Control.Monad (forM_)
-import Data.Functor.Contravariant ((>$<))
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -178,12 +178,8 @@ writeMessage pool category n = do
         sql =
             "SELECT write_message(\
             \$1::varchar, $2::varchar, $3::varchar, $4::jsonb, $5::jsonb)"
-        encoder =
-            ((\(a, _, _, _, _) -> a) >$< E.param (E.nonNullable E.text))
-                <> ((\(_, b, _, _, _) -> b) >$< E.param (E.nonNullable E.text))
-                <> ((\(_, _, c, _, _) -> c) >$< E.param (E.nonNullable E.text))
-                <> ((\(_, _, _, d, _) -> d) >$< E.param (E.nonNullable E.text))
-                <> ((\(_, _, _, _, e) -> e) >$< E.param (E.nonNullable E.text))
+        textParam = E.param (E.nonNullable E.text)
+        encoder = contrazip5 textParam textParam textParam textParam textParam
         decoder = D.singleRow (D.column (D.nonNullable D.int8))
         stmt = preparable sql encoder decoder
     r <-

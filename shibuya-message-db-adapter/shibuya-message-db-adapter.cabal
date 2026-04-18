@@ -150,6 +150,7 @@ test-suite shibuya-message-db-adapter-test
     , bytestring
     , containers
     , contravariant                ^>=1.5
+    , contravariant-extras         ^>=0.3
     , effectful
     , effectful-core
     , ephemeral-pg                 ^>=0.2
