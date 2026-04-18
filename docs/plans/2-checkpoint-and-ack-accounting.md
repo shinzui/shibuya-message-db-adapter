@@ -54,18 +54,14 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 1: InflightState and contiguous-prefix logic
 
-- [ ] Create `shibuya-message-db-adapter/src/Shibuya/Adapter/MessageDb/Internal/InflightState.hs`
+- [x] Create `shibuya-message-db-adapter/src/Shibuya/Adapter/MessageDb/Internal/InflightState.hs`
       with the opaque `InflightState` type and the four operations described under
-      *Interfaces and Dependencies*.
-- [ ] Write unit tests in `test/InflightStateTest.hs` covering: empty state returns
-      `Nothing`; single `AckComplete` advances; `AckRetry` blocks advancement;
-      interleaved `AckComplete`/`AckRetry` advances only to just before the retry;
-      a pending `AckRetry` that later completes unblocks advancement; `AckComplete`
-      on a position that is not the next expected one is buffered until the gap
-      closes.
-- [ ] Wire `InflightStateTest.tests` into `test/Main.hs`.
-- [ ] Run `cabal test shibuya-message-db-adapter` and confirm all new tests pass
-      alongside the existing EP-1 tests.
+      *Interfaces and Dependencies*. (2026-04-18)
+- [x] Write unit tests in `test/Shibuya/Adapter/MessageDb/InflightStateTest.hs` covering
+      the six cases. (2026-04-18)
+- [x] Wire `InflightStateTest.tests` into `test/Main.hs`. (2026-04-18)
+- [x] Run `cabal test shibuya-message-db-adapter` — all 10 tests pass
+      (4 ConvertTest + 6 InflightStateTest). (2026-04-18)
 
 ### Milestone 2: Wire checkpoint-store into the adapter
 
@@ -129,7 +125,10 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The library's `build-depends` did not include `containers` before M1; it was
+  transitively available through other packages but had to be declared
+  explicitly once `Data.Map.Strict` was imported from the local library.
+  Version `^>=0.7` (boot version with GHC 9.12.2). (2026-04-18)
 
 
 ## Decision Log

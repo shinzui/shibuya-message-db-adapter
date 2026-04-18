@@ -41,6 +41,7 @@ library
     Shibuya.Adapter.MessageDb.Config
     Shibuya.Adapter.MessageDb.Convert
     Shibuya.Adapter.MessageDb.Internal
+    Shibuya.Adapter.MessageDb.Internal.InflightState
 
   default-extensions:
     DeriveAnyClass
@@ -57,6 +58,7 @@ library
     , aeson                 ^>=2.2
     , base                  ^>=4.21.0.0
     , bytestring            ^>=0.12
+    , containers            ^>=0.7
     , effectful             ^>=2.6.1.0
     , effectful-core        ^>=2.6.1.0
     , message-db-effectful  ^>=0.1
@@ -124,7 +126,10 @@ test-suite shibuya-message-db-adapter-test
     OverloadedRecordDot
     OverloadedStrings
 
-  other-modules:      Shibuya.Adapter.MessageDb.ConvertTest
+  other-modules:
+    Shibuya.Adapter.MessageDb.ConvertTest
+    Shibuya.Adapter.MessageDb.InflightStateTest
+
   build-depends:
     , aeson
     , base
@@ -132,6 +137,7 @@ test-suite shibuya-message-db-adapter-test
     , message-db-hs
     , shibuya-core
     , shibuya-message-db-adapter
+    , stm
     , tasty                       ^>=1.5
     , tasty-hunit                 ^>=0.10
     , text
