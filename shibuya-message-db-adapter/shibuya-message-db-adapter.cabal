@@ -134,6 +134,7 @@ test-suite shibuya-message-db-adapter-test
 
   other-modules:
     Shibuya.Adapter.MessageDb.CheckpointResumeTest
+    Shibuya.Adapter.MessageDb.ConsumerGroupTest
     Shibuya.Adapter.MessageDb.ConvertTest
     Shibuya.Adapter.MessageDb.DlqTest
     Shibuya.Adapter.MessageDb.InflightFilterTest
@@ -144,8 +145,10 @@ test-suite shibuya-message-db-adapter-test
 
   build-depends:
     , aeson
+    , async                        ^>=2.2
     , base
     , bytestring
+    , containers
     , contravariant                ^>=1.5
     , effectful
     , effectful-core

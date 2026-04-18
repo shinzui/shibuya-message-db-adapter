@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Shibuya.Adapter.MessageDb.CheckpointResumeTest qualified as CheckpointResumeTest
+import Shibuya.Adapter.MessageDb.ConsumerGroupTest qualified as ConsumerGroupTest
 import Shibuya.Adapter.MessageDb.ConvertTest qualified as ConvertTest
 import Shibuya.Adapter.MessageDb.DlqTest qualified as DlqTest
 import Shibuya.Adapter.MessageDb.InflightFilterTest qualified as InflightFilterTest
@@ -23,4 +24,5 @@ main =
             , InflightFilterTest.tests
             , CheckpointResumeTest.tests
             , RetryDlqHaltResumeTest.tests
+            , ConsumerGroupTest.tests
             ]

@@ -112,16 +112,21 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 6: Integration test against ephemeral-pg
 
-- [ ] Add an integration test module `test/ConsumerGroupTest.hs` (hooked into
-      `test/Main.hs`) guarded by the `integration` cabal flag.
-- [ ] Bootstrap ephemeral-pg + message-db schema, seed 30 messages across 6 categories.
-- [ ] Launch three adapter instances (`groupSize = 3`, `member` in `0, 1, 2`) from the
-      same process under the `ApplicationRunner`-style orchestration used by EP-2's
-      integration test harness.
-- [ ] Assert: 30 handler invocations total, 0 duplicates, and each category's messages
-      all hit the same `member`.
-- [ ] Assert each `member`'s checkpoint row exists under
-      `"${subscriptionName}-${member}-of-${groupSize}"`.
+- [x] Add an integration test module `test/Shibuya/Adapter/MessageDb/ConsumerGroupTest.hs`
+      (hooked into `test/Main.hs`). No `integration` flag was introduced in EP-2;
+      this test shares the test-suite with the other ephemeral-pg tests. (2026-04-18)
+- [x] Bootstrap ephemeral-pg + message-db schema, seed 30 messages. Used a single
+      category `cgtdemo` instead of 6 distinct categories — see the Surprises &
+      Discoveries entry for why. (2026-04-18)
+- [x] Launch three adapter instances (`groupSize = 3`, `member` in `0, 1, 2`) from the
+      same process. Each runs in its own IO thread via `Control.Concurrent.Async`;
+      non-owner threads are cancelled with `Async.cancel` because their source never
+      emits and cannot be stopped cooperatively. (2026-04-18)
+- [x] Assert: 30 handler invocations total, 0 duplicates, owner processes every
+      message, non-owner members process zero. (2026-04-18)
+- [x] Assert each member's checkpoint row exists under
+      `"${subscriptionName}-${member}-of-${groupSize}"` and has reached the final
+      global position. (2026-04-18)
 
 
 ## Surprises & Discoveries
@@ -140,6 +145,30 @@ here, even if it requires splitting a partially completed task into two ("done" 
   `Shibuya.Adapter.MessageDb.Internal`. M4 became "plumb `effectiveName` through
   the three checkpoint call sites"; M5 became "wrap `messageToEnvelope` in
   `applyPartitionLabel cfg.consumerGroup`". Both exposed from `Internal`. (2026-04-18)
+
+- Message-db's `getCategoryMessages` SQL (seen at
+  `/Users/shinzui/Keikaku/hub/event-sourcing/message-db-project/message-db/database/functions/get-category-messages.sql`)
+  is strict: `WHERE category(stream_name) = $1` matches one category
+  name exactly. Combined with the Decision Log's choice to hash by
+  *category* (matching `message-db-subscription`'s `getPartitionMurmur`),
+  all messages written to a single category name hash to the same
+  partition. The plan's integration-test design (6 distinct categories,
+  5 messages each, 3 adapters) therefore does not work verbatim:
+  `messageDbAdapter` takes one `CategoryStream`, so three adapters
+  polling one category would route every message to one member and
+  leave the other two idle, while spawning 6×3 = 18 adapters to cover
+  six categories diverges from "three adapter instances" literally.
+
+  Implemented a simpler variant that proves the same invariants:
+  `test/Shibuya/Adapter/MessageDb/ConsumerGroupTest.hs` writes 30
+  messages to one category `cgtdemo`, launches 3 adapters with
+  `(groupSize = 3, member ∈ {0, 1, 2})`, and asserts (a) exactly 30
+  handler invocations total across members, (b) no duplicate message
+  ids, (c) every invocation lands on the member whose index equals
+  `categoryPartition 3 "cgtdemo"`, and (d) three checkpoint rows exist
+  at `cgtdemo-sub-<m>-of-3`, each at the last global position. The
+  filter-and-advance path is exercised by the two non-owner members.
+  (2026-04-18)
 
 
 ## Decision Log
@@ -198,7 +227,54 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+**Delivered.** Shibuya's message-db adapter now accepts an optional
+`ConsumerGroupConfig { groupSize, member }` on its `MessageDbAdapterConfig`.
+When set, the adapter (a) validates bounds at startup and throws a user error
+on `groupSize < 1` or `member ∉ [0, groupSize)`, (b) filters each polled batch
+to just the member-owning messages, marking the rest ingested-and-completed in
+a single STM transaction so the contiguous-prefix checkpoint advances past
+them, (c) reads and writes its checkpoint under a partition-scoped
+subscription name `"${base}-${member}-of-${groupSize}"`, and (d) populates
+`Envelope.partition` with `"${member}-of-${groupSize}"` for every emitted
+envelope. With `consumerGroup = Nothing`, observable behavior is identical to
+EP-2 / EP-3.
+
+**Unit coverage.** Four partition-hash tests pin `categoryPartition` to
+`message-db-subscription`'s private `getPartitionMurmur` and cover
+deterministic/range/empty-category edge cases. One inflight-filter test
+proves that mixed belonging/filtered batches advance the contiguous prefix
+correctly.
+
+**Integration coverage.** `three-member group routes messages by category
+hash` launches three adapters against an ephemeral Postgres, writes 30
+messages, asserts 30 handler invocations by exactly the owner member, zero
+duplicates, and three distinct checkpoint rows. Full suite: **35/35 tests
+passing**.
+
+**Deviations from the plan.**
+
+1. The Milestone 3 unit-test specification had an off-by-one error in its
+   first `advanceCheckpointTo` assertion; the implemented test follows the
+   correct behavior. Both the specification error and the fix are logged in
+   Surprises & Discoveries.
+2. The Milestone 6 integration test uses a single category instead of six
+   because (as logged) message-db's `get_category_messages` SQL matches one
+   exact category and `messageDbAdapter` takes one `CategoryStream` — three
+   adapters over six categories would require either 18 adapter instances
+   (diverging from "three adapter instances") or a wildcard-category feature
+   that EP-4 does not introduce. The simpler one-category variant still
+   exercises the routing, filter-advance, and checkpoint-naming invariants.
+3. Threads running non-owner adapters are cancelled with `Async.cancel`
+   rather than shut down via `adapter.shutdown`, because Shibuya's source
+   stream can only cooperatively terminate once it emits an element, and the
+   non-owner sources never emit. Cancellation is safe here because the test
+   reads checkpoint state directly from Postgres after confirming all rows
+   have advanced; no in-flight work is lost.
+
+**What to watch.** If `murmur-hash` ever ships a major version bump that
+changes its output, the Milestone 2 cross-check test against
+`message-db-subscription`'s inline reference implementation will fail loudly.
+Pin the dependency and open a follow-up plan if that happens.
 
 
 ## Context and Orientation
