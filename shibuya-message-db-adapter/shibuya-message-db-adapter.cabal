@@ -67,6 +67,7 @@ library
     , message-db-checkpoint-store  ^>=0.1
     , message-db-effectful         ^>=0.1
     , message-db-hs                ^>=0.1
+    , murmur-hash                  ^>=0.1.0
     , shibuya-core                 ^>=0.1.0.0
     , stm                          ^>=2.5
     , streamly                     ^>=0.11
@@ -136,6 +137,7 @@ test-suite shibuya-message-db-adapter-test
     Shibuya.Adapter.MessageDb.ConvertTest
     Shibuya.Adapter.MessageDb.DlqTest
     Shibuya.Adapter.MessageDb.InflightStateTest
+    Shibuya.Adapter.MessageDb.PartitionTest
     Shibuya.Adapter.MessageDb.RetryBufferTest
     Shibuya.Adapter.MessageDb.RetryDlqHaltResumeTest
 
@@ -154,6 +156,7 @@ test-suite shibuya-message-db-adapter-test
     , message-db-checkpoint-store
     , message-db-effectful
     , message-db-hs
+    , murmur-hash
     , shibuya-core
     , shibuya-message-db-adapter
     , stm

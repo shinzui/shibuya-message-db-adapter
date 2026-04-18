@@ -38,6 +38,13 @@ module Shibuya.Adapter.MessageDb.Internal (
     runCheckpointPersister,
     retryFiber,
     nominalToMicros,
+
+    -- * Consumer-group partitioning (EP-4)
+    categoryPartition,
+    partitionBelongsToMember,
+    partitionedSubscriptionName,
+    partitionLabel,
+    applyPartitionLabel,
 )
 where
 
@@ -49,9 +56,12 @@ import Control.Concurrent.STM (
  )
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
+import Data.Digest.Murmur64 qualified as Murmur
 import Data.Function ((&))
 import Data.IORef (IORef, atomicModifyIORef', readIORef)
+import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Data.Time.Clock (
     NominalDiffTime,
@@ -71,9 +81,11 @@ import MessageDb.Db.Statements.BatchSize qualified as MdbBatch
 import MessageDb.Effectful (MessageDb, getCategoryMessages)
 import MessageDb.Message qualified as Mdb
 import MessageDb.Message.Stream.CategoryStream qualified as CategoryStream
+import MessageDb.Message.Stream.Stream qualified as MStream
 import Shibuya.Adapter.MessageDb.Config (
     BatchSize (..),
     CategoryStream (..),
+    ConsumerGroupConfig (..),
     DlqStrategy (..),
     MessageDbAdapterConfig (..),
     PollInterval (..),
@@ -102,6 +114,7 @@ import Shibuya.Core.Ack (
  )
 import Shibuya.Core.AckHandle (AckHandle (..))
 import Shibuya.Core.Ingested (Ingested (..))
+import Shibuya.Core.Types (Envelope (..))
 import Streamly.Data.Stream (Stream)
 import Streamly.Data.Stream qualified as Stream
 import Streamly.Data.Unfold qualified as Unfold
@@ -124,6 +137,65 @@ parseCategoryStream (CategoryStream txt) =
                     <> Text.unpack txt
                     <> ": "
                     <> Text.unpack err
+
+-- * Consumer-group partitioning (EP-4)
+
+{- | Return the member index that owns the given category under a group
+of @groupSize@ members.
+
+Matches @message-db-subscription@'s private @getPartitionMurmur@:
+Murmur3-64 over the UTF-8 encoding of the category name, taken modulo
+@groupSize@. Total for every @Text@ and every @groupSize >= 1@; result
+is in @[0, groupSize)@. @groupSize <= 0@ is rejected by
+'Shibuya.Adapter.MessageDb.Config.validateConsumerGroup' at adapter
+startup, so this function is not a defensive checkpoint.
+-}
+categoryPartition :: Int -> Text -> Int
+categoryPartition groupSize category =
+    fromIntegral (Murmur.asWord64 (Murmur.hash64 bytes)) `mod` groupSize
+  where
+    bytes = Text.encodeUtf8 category
+
+{- | 'True' when the message's category hashes to this member's index.
+
+Extracts the category from either a 'Category' or 'Entity' stream (per
+'MStream.category') and delegates to 'categoryPartition'.
+-}
+partitionBelongsToMember :: ConsumerGroupConfig -> Mdb.Message -> Bool
+partitionBelongsToMember ConsumerGroupConfig{groupSize, member} msg =
+    categoryPartition groupSize catText == member
+  where
+    catText = CategoryStream.toText (MStream.category msg.stream)
+
+{- | Append a partition suffix to a subscription name so members of the
+same group do not collide on the shared checkpoint row.
+
+Example: @partitionedSubscriptionName "orders-demo" (ConsumerGroupConfig 3 1) == "orders-demo-1-of-3"@.
+-}
+partitionedSubscriptionName :: SubscriptionName -> ConsumerGroupConfig -> SubscriptionName
+partitionedSubscriptionName base ConsumerGroupConfig{groupSize, member} =
+    base <> "-" <> Text.pack (show member) <> "-of-" <> Text.pack (show groupSize)
+
+{- | The telemetry-facing partition coordinate: @\"\<member\>-of-\<groupSize\>\"@.
+
+Populated into 'Envelope.partition' for every belonging message so
+handlers and downstream tooling can identify the partition without
+learning about subscription-name internals.
+-}
+partitionLabel :: ConsumerGroupConfig -> Text
+partitionLabel ConsumerGroupConfig{groupSize, member} =
+    Text.pack (show member) <> "-of-" <> Text.pack (show groupSize)
+
+{- | Overwrite an envelope's @partition@ field with 'partitionLabel' when
+partitioning is enabled. No-op otherwise.
+-}
+applyPartitionLabel ::
+    Maybe ConsumerGroupConfig ->
+    Envelope Mdb.Message ->
+    Envelope Mdb.Message
+applyPartitionLabel Nothing env = env
+applyPartitionLabel (Just grp) env =
+    env{partition = Just (partitionLabel grp)}
 
 {- | Build a @GetCategoryMessagesQuery@ for the current poll cycle.
 

@@ -63,18 +63,18 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 2: Hash function sourcing
 
-- [ ] Read `message-db-subscription/src/MessageDb/Subscription/Consumer.hs` and confirm
-      `getPartitionMurmur` is private (not in the module export list).
-- [ ] Record the duplication Decision Log entry and add a dependency on
+- [x] Read `message-db-subscription/src/MessageDb/Subscription/Consumer.hs` and confirm
+      `getPartitionMurmur` is private (not in the module export list). (2026-04-18)
+- [x] Record the duplication Decision Log entry and add a dependency on
       `murmur-hash ^>=0.1.0` to the cabal file (matching what message-db-subscription
-      uses).
-- [ ] Implement `categoryPartition :: Int -> Text -> Int` in
+      uses). (2026-04-18)
+- [x] Implement `categoryPartition :: Int -> Text -> Int` in
       `Shibuya.Adapter.MessageDb.Internal` using `Data.Digest.Murmur64.hash64` over the
-      UTF-8 encoding of the category name.
-- [ ] Export `categoryPartition` from `Shibuya.Adapter.MessageDb.Internal`.
-- [ ] Unit tests that `categoryPartition n cat` is deterministic, total, in `[0, n)`,
+      UTF-8 encoding of the category name. (2026-04-18)
+- [x] Export `categoryPartition` from `Shibuya.Adapter.MessageDb.Internal`. (2026-04-18)
+- [x] Unit tests that `categoryPartition n cat` is deterministic, total, in `[0, n)`,
       and matches `message-db-subscription`'s `getPartitionMurmur` output for a handful
-      of representative inputs.
+      of representative inputs. (2026-04-18)
 
 ### Milestone 3: Filter + InflightState coordination
 
