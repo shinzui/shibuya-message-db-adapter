@@ -58,7 +58,7 @@
             export PGHOST="$PWD/db"
             export PGDATA="$PGHOST/db"
             export PGLOG=$PGHOST/postgres.log
-            export PGDATABASE=shibuya-message-db-adapter
+            export PGDATABASE=shibuya_message_db_adapter_dev
             export PG_CONNECTION_STRING=postgresql://$(jq -rn --arg x $PGHOST '$x|@uri')/$PGDATABASE
 
             mkdir -p $PGHOST

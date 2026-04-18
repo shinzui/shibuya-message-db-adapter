@@ -39,11 +39,15 @@ drop-database:
 # Create the database (if missing) and install the message-db schema from the
 # local checkout under $MESSAGE_DB_ROOT. This recipe is the glue used by the
 # `create_schema` process in process-compose.yaml.
+#
+# We `createdb` ourselves (idempotently) and set CREATE_DATABASE=off so the
+# message-db install script installs only the schema/extensions/table/
+# functions/indexes/views/privileges into the existing database.
 [group("db")]
 bootstrap-message-db:
     createdb $PGDATABASE || true
     MESSAGE_DB_ROOT=${MESSAGE_DB_ROOT:-/Users/shinzui/Keikaku/hub/event-sourcing/message-db-project/message-db} \
-      && DATABASE_NAME=$PGDATABASE $MESSAGE_DB_ROOT/database/install.sh
+      && DATABASE_NAME=$PGDATABASE CREATE_DATABASE=off $MESSAGE_DB_ROOT/database/install.sh
 
 # Seed three sample messages into a category stream.
 # Usage: just seed-messages orders

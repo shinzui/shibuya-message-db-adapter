@@ -70,15 +70,21 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 3: Flake updates and dev loop
 
-- [ ] Update `flake.nix` to include `zlib`, `postgresql`, `process-compose`, `just`,
-      `cabal-install`, `pkg-config`, `haskell-language-server` as `nativeBuildInputs`.
-- [ ] Update `process-compose.yaml` so `create_schema` runs `just create-database` which
-      creates the `shibuya_message_db_adapter_dev` database in the direnv-managed
-      Postgres and applies the message-db Postgres scripts from
-      `/Users/shinzui/Keikaku/hub/event-sourcing/message-db-project/message-db/database`.
-- [ ] Verify `direnv allow && nix develop` yields a working shell with `psql`, `just`,
-      and `cabal`.
-- [ ] Verify `just process-up` starts Postgres and seeds the message-db schema.
+- [x] `flake.nix` already includes `zlib`, `postgresql`, `process-compose`, `just`,
+      `cabal-install`, `pkg-config`, and `haskell-language-server` as
+      `nativeBuildInputs` (scaffolded previously by the `nix-haskell-flake` seihou
+      module). Rename `$PGDATABASE` from `shibuya-message-db-adapter` (dashes need
+      quoting in psql and message-db install scripts) to
+      `shibuya_message_db_adapter_dev`. (2026-04-18)
+- [x] `process-compose.yaml`'s `create_schema` process already runs
+      `just create-database`, which now chains to `bootstrap-message-db` and applies
+      the message-db schema from `$MESSAGE_DB_ROOT/database/install.sh` with
+      `CREATE_DATABASE=off`. (2026-04-18)
+- [x] Verify `nix develop` yields `psql`, `just`, `cabal`, `process-compose`.
+      (2026-04-18: all four resolve to nix store paths.)
+- [x] Verify bootstrap works: `pg_ctl start` + `just bootstrap-message-db` installs
+      the schema and `psql -c '\dt message_store.*'` lists the `messages` table.
+      (2026-04-18: confirmed against message-db 1.3.0.)
 
 ### Milestone 4: Conversion module
 
