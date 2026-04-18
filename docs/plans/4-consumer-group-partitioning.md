@@ -78,37 +78,37 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 3: Filter + InflightState coordination
 
-- [ ] Identify the batch-ingestion site in
+- [x] Identify the batch-ingestion site in
       `Shibuya.Adapter.MessageDb.Internal.messageDbSource` where `getCategoryMessages`
-      returns a `Vector Message`.
-- [ ] Introduce a `partitionBelongsToMember :: ConsumerGroupConfig -> Message -> Bool`
-      predicate and apply it to each message in the batch.
-- [ ] For every message *not* belonging to this member, record the slot in
+      returns a `Vector Message`. (2026-04-18)
+- [x] Introduce a `partitionBelongsToMember :: ConsumerGroupConfig -> Message -> Bool`
+      predicate and apply it to each message in the batch. (2026-04-18)
+- [x] For every message *not* belonging to this member, record the slot in
       `InflightState` and mark it `AckComplete` immediately so the contiguous-prefix
-      checkpoint advances past it.
-- [ ] For every message that *does* belong, carry on with normal `recordIngested`
-      + `mkAckHandle` wiring.
-- [ ] Unit test this coordination with a stub in-memory `InflightState` to show a mixed
-      batch advances the checkpoint correctly after the belonging messages are acked.
+      checkpoint advances past it. (2026-04-18)
+- [x] For every message that *does* belong, carry on with normal `recordIngested`
+      + `mkAckHandle` wiring. (2026-04-18)
+- [x] Unit test this coordination with a stub in-memory `InflightState` to show a mixed
+      batch advances the checkpoint correctly after the belonging messages are acked. (2026-04-18)
 
 ### Milestone 4: Partition-scoped subscription name
 
-- [ ] Add `partitionedSubscriptionName :: SubscriptionName -> ConsumerGroupConfig -> SubscriptionName`
-      to `Shibuya.Adapter.MessageDb.Internal`.
-- [ ] Replace the checkpoint-store read and write sites inside the adapter startup and
+- [x] Add `partitionedSubscriptionName :: SubscriptionName -> ConsumerGroupConfig -> SubscriptionName`
+      to `Shibuya.Adapter.MessageDb.Internal`. (2026-04-18)
+- [x] Replace the checkpoint-store read and write sites inside the adapter startup and
       periodic save path so they route through `partitionedSubscriptionName` when
-      `consumerGroup = Just cfg`.
-- [ ] Verify by reading the code path that a `Nothing` consumer group produces exactly
-      the same `SubscriptionName` as before (no regression for non-partitioned users).
+      `consumerGroup = Just cfg`. (2026-04-18)
+- [x] Verify by reading the code path that a `Nothing` consumer group produces exactly
+      the same `SubscriptionName` as before (no regression for non-partitioned users). (2026-04-18)
 
 ### Milestone 5: Envelope.partition population
 
-- [ ] Thread `consumerGroup` from config into the place where
-      `messageToEnvelope` is called.
-- [ ] Override the envelope's `partition` field with
-      `Just (partitionLabel cfg)` (see signature below) when partitioning is on.
-- [ ] Confirm the `Nothing` case leaves the envelope's `partition` untouched (the
-      existing `Convert.messageToEnvelope` already sets it to `Nothing`).
+- [x] Thread `consumerGroup` from config into the place where
+      `messageToEnvelope` is called. (2026-04-18)
+- [x] Override the envelope's `partition` field with
+      `Just (partitionLabel cfg)` (see signature below) when partitioning is on. (2026-04-18)
+- [x] Confirm the `Nothing` case leaves the envelope's `partition` untouched (the
+      existing `Convert.messageToEnvelope` already sets it to `Nothing`). (2026-04-18)
 
 ### Milestone 6: Integration test against ephemeral-pg
 
@@ -126,7 +126,20 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- The plan's Milestone 3 unit-test specification says "assert
+  `advanceCheckpointTo` returns `Nothing` (because 2 is still inflight)" after
+  ingesting-and-completing positions 1, 3, 5 and ingesting 2, 4 without completion.
+  That assertion is wrong: position 1 is complete and 'advanceCheckpointTo' must
+  return `Just 1` on the first call. The implemented test asserts the correct
+  behavior (`Just 1` → complete 2 → `Just 3` → complete 4 → `Just 5`). The
+  underlying property — filtered messages do not block the contiguous prefix — is
+  unchanged and still verified. (2026-04-18)
+
+- Milestones 4 and 5 turned out to be trivial once M2 defined
+  `partitionedSubscriptionName`, `partitionLabel`, and `applyPartitionLabel` in
+  `Shibuya.Adapter.MessageDb.Internal`. M4 became "plumb `effectiveName` through
+  the three checkpoint call sites"; M5 became "wrap `messageToEnvelope` in
+  `applyPartitionLabel cfg.consumerGroup`". Both exposed from `Internal`. (2026-04-18)
 
 
 ## Decision Log

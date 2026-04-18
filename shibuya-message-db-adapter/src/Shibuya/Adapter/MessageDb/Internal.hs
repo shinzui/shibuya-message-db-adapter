@@ -42,6 +42,8 @@ module Shibuya.Adapter.MessageDb.Internal (
     -- * Consumer-group partitioning (EP-4)
     categoryPartition,
     partitionBelongsToMember,
+    partitionBatch,
+    recordFilteredCompleted,
     partitionedSubscriptionName,
     partitionLabel,
     applyPartitionLabel,
@@ -49,12 +51,13 @@ module Shibuya.Adapter.MessageDb.Internal (
 where
 
 import Control.Concurrent.STM (
+    STM,
     TVar,
     atomically,
     readTVarIO,
     writeTVar,
  )
-import Control.Monad (unless, when)
+import Control.Monad (forM_, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Data.Digest.Murmur64 qualified as Murmur
 import Data.Function ((&))
@@ -166,6 +169,34 @@ partitionBelongsToMember ConsumerGroupConfig{groupSize, member} msg =
     categoryPartition groupSize catText == member
   where
     catText = CategoryStream.toText (MStream.category msg.stream)
+
+{- | Split a polled batch into the messages this member owns and the
+messages belonging to other members.
+
+When no consumer group is configured every message belongs to this
+(sole) member, so the right-hand side is empty.
+-}
+partitionBatch ::
+    Maybe ConsumerGroupConfig ->
+    Vector Mdb.Message ->
+    (Vector Mdb.Message, Vector Mdb.Message)
+partitionBatch Nothing batch = (batch, Vector.empty)
+partitionBatch (Just grp) batch = Vector.partition (partitionBelongsToMember grp) batch
+
+{- | Record a filtered-out position in the inflight ledger as
+ingested-and-immediately-completed, in a single STM transaction.
+
+Required for consumer-group partitioning: without it,
+'advanceCheckpointTo' would stall at the first non-belonging global
+position because the ledger's contiguous prefix could not cross it. By
+marking the slot 'AckComplete' atomically with ingestion, this member
+tells the persister \"someone else owns this position, do not wait on
+it\".
+-}
+recordFilteredCompleted :: InflightState -> Mdb.GlobalPosition -> STM ()
+recordFilteredCompleted st pos = do
+    recordIngested st pos
+    recordAckResult st pos Inflight.AckComplete
 
 {- | Append a partition suffix to a subscription name so members of the
 same group do not collide on the shared checkpoint row.
@@ -340,7 +371,7 @@ mkIngested cfg inflight shutdownSignal msg = do
     liftIO . atomically $ recordIngested inflight msg.globalPosition
     pure
         Ingested
-            { envelope = messageToEnvelope msg
+            { envelope = applyPartitionLabel cfg.consumerGroup (messageToEnvelope msg)
             , ack = mkAckHandle cfg inflight shutdownSignal msg
             , lease = Nothing
             }
@@ -411,8 +442,12 @@ messageDbSource shutdownSignal positionRef ackedRef inflight config =
                     -- re-reading it. The server skips gaps itself.
                     Mdb.GlobalPosition lastPos = lastMsg.globalPosition
                     next = Mdb.GlobalPosition (lastPos + 1)
+                    (belonging, filtered) = partitionBatch config.consumerGroup batch
                 liftIO $ atomicModifyIORef' positionRef $ \_ -> (next, ())
-                pure (retriesVec <> batch)
+                liftIO . atomically $
+                    forM_ filtered $
+                        \m -> recordFilteredCompleted inflight m.globalPosition
+                pure (retriesVec <> belonging)
 
 -- | Stop producing once the shutdown 'TVar' flips to 'True'.
 takeUntilShutdown ::

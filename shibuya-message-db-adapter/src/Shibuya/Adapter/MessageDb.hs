@@ -86,6 +86,7 @@ import Shibuya.Adapter.MessageDb.Internal (
     messageDbSource,
     nominalToMicros,
     parseCategoryStream,
+    partitionedSubscriptionName,
     retryFiber,
     runCheckpointPersister,
  )
@@ -124,7 +125,10 @@ messageDbAdapter config = do
     case validateConsumerGroup config.consumerGroup of
         Right () -> pure ()
         Left msg -> liftIO (throwIO (userError (Text.unpack msg)))
-    mStored <- getLastCheckpoint config.subscriptionName
+    let effectiveName = case config.consumerGroup of
+            Nothing -> config.subscriptionName
+            Just grp -> partitionedSubscriptionName config.subscriptionName grp
+    mStored <- getLastCheckpoint effectiveName
     let stored = fromMaybe (Mdb.GlobalPosition 0) mStored
         Mdb.GlobalPosition storedN = stored
         startAt = Mdb.GlobalPosition (storedN + 1)
@@ -142,7 +146,7 @@ messageDbAdapter config = do
             runCheckpointPersister
                 inflight
                 shutdownSignal
-                config.subscriptionName
+                effectiveName
                 parsedCat
                 ci
     _ <-
@@ -157,7 +161,7 @@ messageDbAdapter config = do
                 doShutdown
                     shutdownSignal
                     inflight
-                    config.subscriptionName
+                    effectiveName
                     parsedCat
                     dto
                     ci

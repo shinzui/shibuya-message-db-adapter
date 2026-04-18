@@ -136,6 +136,7 @@ test-suite shibuya-message-db-adapter-test
     Shibuya.Adapter.MessageDb.CheckpointResumeTest
     Shibuya.Adapter.MessageDb.ConvertTest
     Shibuya.Adapter.MessageDb.DlqTest
+    Shibuya.Adapter.MessageDb.InflightFilterTest
     Shibuya.Adapter.MessageDb.InflightStateTest
     Shibuya.Adapter.MessageDb.PartitionTest
     Shibuya.Adapter.MessageDb.RetryBufferTest
