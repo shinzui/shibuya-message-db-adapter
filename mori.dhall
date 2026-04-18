@@ -45,6 +45,18 @@ in  Schema.Project::{ project =
         , docs = emptyDocs
         , config = emptyConfig
         }
+      , Schema.Package::{ name = "shibuya-message-db-adapter-jitsurei"
+        , type = Schema.PackageType.Application
+        , language = Schema.Language.Haskell
+        , path = Some "shibuya-message-db-adapter-jitsurei"
+        , description = Some
+            "Runnable examples: basic consumer, retry, dead-letter, checkpoint restart, multi-partition"
+        , visibility = Schema.Visibility.Internal
+        , runtime = { deployable = True, exposesApi = False }
+        , dependencies = emptyDeps
+        , docs = emptyDocs
+        , config = emptyConfig
+        }
       ]
     , dependencies =
       [ "shinzui/shibuya"
@@ -66,6 +78,19 @@ in  Schema.Project::{ project =
           ]
         , relatedPackages =
           [ "shibuya-message-db-adapter"
+          ]
+        }
+      , Schema.AgentHint::{ role = "examples-dev"
+        , description = Some
+            "Jitsurei examples: usage patterns for the message-db adapter"
+        , includePaths =
+          [ "shibuya-message-db-adapter-jitsurei/**"
+          ]
+        , excludePaths =
+          [ "dist-newstyle/**"
+          ]
+        , relatedPackages =
+          [ "shibuya-message-db-adapter-jitsurei"
           ]
         }
       ]

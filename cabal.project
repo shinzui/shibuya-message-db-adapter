@@ -4,6 +4,7 @@ with-compiler: ghc-9.12.2
 
 packages:
   ./shibuya-message-db-adapter
+  ./shibuya-message-db-adapter-jitsurei
   /Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya/shibuya-core
   /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-hs
   /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-effectful

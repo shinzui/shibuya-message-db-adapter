@@ -59,17 +59,20 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 1: Scaffold shibuya-message-db-adapter-jitsurei
 
-- [ ] Create directory `shibuya-message-db-adapter-jitsurei/` at the repo root with
-      `app/` subdirectory and `LICENSE` copied from the main package.
-- [ ] Write `shibuya-message-db-adapter-jitsurei/shibuya-message-db-adapter-jitsurei.cabal`
+- [x] Create directory `shibuya-message-db-adapter-jitsurei/` at the repo root with
+      `app/` subdirectory and `LICENSE` copied from the main package. (2026-04-18;
+      LICENSE sourced from `shibuya-kafka-adapter-jitsurei` since the main adapter
+      package has no LICENSE file of its own.)
+- [x] Write `shibuya-message-db-adapter-jitsurei/shibuya-message-db-adapter-jitsurei.cabal`
       with one `common common-deps` stanza and one initial `executable basic-consumer`
-      stanza; additional stanzas are added as examples are implemented.
-- [ ] Update `cabal.project` at the repo root to include
-      `./shibuya-message-db-adapter-jitsurei` in `packages:`.
-- [ ] Update `mori.dhall` at the repo root to register both packages (library and
-      jitsurei) following the kafka adapter's structure.
-- [ ] Confirm `cabal build shibuya-message-db-adapter-jitsurei` compiles a placeholder
-      `BasicConsumer.hs` that just prints a TODO.
+      stanza; additional stanzas are added as examples are implemented. (2026-04-18)
+- [x] Update `cabal.project` at the repo root to include
+      `./shibuya-message-db-adapter-jitsurei` in `packages:`. (2026-04-18)
+- [x] Update `mori.dhall` at the repo root to register both packages (library and
+      jitsurei) following the kafka adapter's structure. (2026-04-18; `mori register`
+      deferred until all milestones land so metadata reflects the final executable set.)
+- [x] Confirm `cabal build shibuya-message-db-adapter-jitsurei` compiles a placeholder
+      `BasicConsumer.hs` that just prints a TODO. (2026-04-18)
 
 ### Milestone 2: BasicConsumer, RetryDemo, DeadLetterDemo
 
