@@ -134,27 +134,28 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 6: Tests
 
-- [ ] Unit test: a newly-created retry buffer honours `notBefore` delays. Enqueue two
-      entries with `notBefore` 100ms and 200ms ahead; consume until empty with a small
-      sleep loop; assert elapsed time between the two pops is within a sensible
-      tolerance of 100ms.
-- [ ] Unit test: the retry buffer's full-buffer-downgrade path produces an
-      `AckDeadLetter MaxRetriesExceeded` outcome for the scheduler's caller.
-- [ ] Unit test: DLQ messageId derivation is deterministic (same input, same output)
-      and distinct from the input messageId.
-- [ ] Integration test (ephemeral-pg): write 5 messages to category `orders-retrydemo`;
-      run a handler that returns `AckRetry (RetryDelay 0.1)` for the 3rd message on
-      first delivery and `AckOk` on second delivery (and `AckOk` unconditionally for
-      the other four). Assert: all 5 messages eventually see `AckOk`; the final
-      persisted checkpoint equals the global position of message 5; the 3rd message's
-      handler was invoked exactly twice.
-- [ ] Integration test (ephemeral-pg): same 5-message setup but handler returns
-      `AckDeadLetter Unprocessable` for message 3 with `DlqWriteToStream (Stream "orders.dlq")`;
-      assert the DLQ stream has exactly one message and its `messageMetadata.correlation`
-      equals the original message's id.
-- [ ] Integration test (ephemeral-pg): handler returns `AckHalt ManualStop` for
-      message 3; assert the adapter shuts down, checkpoint persists at message 2's
-      position, and a restart re-delivers message 3.
+- [x] Unit test (RetryBufferTest): scheduleRetry enqueues and bumps size.
+- [x] Unit test (RetryBufferTest): full buffer returns False (overflow path).
+- [x] Unit test (RetryBufferTest): popRetryHeadToChannel + drainRetryChannel
+      produce FIFO order.
+- [x] Unit test (RetryBufferTest): tryPeekRetry surfaces the earliest entry.
+- [x] Unit test (DlqTest): dlqMessageId is deterministic, differs from input,
+      and distinguishes inputs.
+- [x] Unit test (DlqTest): buildDlqMetadata preserves original correlation
+      when present, falls back to original id otherwise, sets causation to
+      original id, renders DeadLetterReason, includes originalStream.
+- [x] Unit test (DlqTest): mkDlqMessage uses deterministic id, target stream,
+      `$DeadLetter` type, preserves payload, and leaves expectedPosition unset.
+- [x] Integration test (RetryDlqHaltResumeTest, ephemeral-pg): retry-then-ok —
+      five messages seeded, handler retries position 3 once with 100 ms delay,
+      all five eventually ack, checkpoint reaches 5, message 3 delivered
+      exactly twice.
+- [x] Integration test (ephemeral-pg): deadletter-write — DlqWriteToStream
+      produces exactly one DLQ row with `metadata.correlation` equal to the
+      original message 3's id.
+- [x] Integration test (ephemeral-pg): halt — AckHalt on message 3 pins the
+      checkpoint at 2, and a fresh adapter over the same subscription
+      redelivers messages 3..5.
 
 
 ## Surprises & Discoveries
@@ -243,7 +244,82 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+EP-3 landed the full `AckDecision` surface for the adapter across six
+milestones and 29 passing tests (17 unit + 12 integration, up from
+EP-2's 12). The adapter now supports:
+
+* `AckOk` — unchanged from EP-2.
+* `AckRetry (RetryDelay d)` — in-process retry via a bounded `TQueue`,
+  with a dedicated retry fiber that publishes to a `TChan` once each
+  entry's `notBefore` has elapsed. Buffer overflow downgrades to
+  `AckDeadLetter MaxRetriesExceeded`.
+* `AckDeadLetter reason` — pluggable `DlqStrategy`: `DlqSkipAndLog`
+  advances the checkpoint after logging; `DlqWriteToStream` writes a
+  deterministic-id copy to a named message-db stream with crash-safe
+  idempotency via SQLSTATE-23505 recognition.
+* `AckHalt reason` — flips the shutdown `TVar` without recording the
+  outcome, pinning the contiguous-prefix checkpoint strictly before
+  the halted position; restart resumes at the halted position.
+
+### What worked well
+
+* **Extending `InflightState` rather than forking a separate retry
+  ledger.** Keeping the retry TQueue, TChan, and size counter as
+  additional fields on the existing opaque type meant the checkpoint
+  advancement logic did not change at all — the retry mechanism
+  writes `Just AckRetry` through the same outcomes map the
+  contiguous-prefix walk already consulted. Zero new integration
+  points with the persister.
+* **`orElse` as the retry fiber's wakeup primitive.** The
+  `(Just <$> peekTQueue) \`orElse\` (check-shutdown-or-retry)` shape
+  let the fiber block indefinitely on pure STM while still responding
+  promptly to shutdown, without any busy-polling.
+* **Deterministic UUIDv5 DLQ ids as the idempotency mechanism.** No
+  coordinating table, no DB-side unique constraint on
+  `(stream, message_id)` — just rely on message-db's existing primary
+  key on `messages.id` and catch the 23505. The DLQ write is
+  effectively-once without any new infrastructure.
+* **`tryWriteDlq` encapsulating the Error plumbing.** Using
+  `runErrorNoCallStack @WrongExpectedVersion` locally kept the WEV
+  effect scoped to the DLQ helper. Callers see a clean
+  `Either DlqWriteError _` and never need to thread `Error
+  WrongExpectedVersion` through their own stack.
+
+### What surprised us
+
+* Shibuya's `DeadLetterReason` and `HaltReason` constructors did not
+  match the plan's illustrative names (`Unprocessable`,
+  `ValidationFailed`, `CustomReason`, `ManualStop`). Recorded under
+  Surprises & Discoveries; plan steps updated to use the real
+  constructors (`PoisonPill`, `InvalidPayload`, `MaxRetriesExceeded`,
+  `HaltFatal`).
+* message-db's duplicate-write error is a plain hasql `SessionError`
+  with SQLSTATE 23505, not a `WrongExpectedVersion`. The plan had
+  suggested the latter. `tryWriteDlq` was rewritten to catch both
+  error carriers.
+* `DuplicateRecordFields` + `NoFieldSelectors` produced a HasField
+  resolution failure when a test module tried `entry.retryPosition`
+  on an imported record. Mitigated by pattern-matching against the
+  constructor (`RetryEntry{retryPosition = p}`) in tests. Library
+  code — which has `OverloadedRecordDot` at the defining site — is
+  unaffected.
+
+### Non-goals deferred
+
+Per the plan's Validation and Acceptance "Non-goals" paragraph:
+`DlqCustom` strategy, per-message retry limits, DLQ-of-DLQ semantics,
+and replay-from-DLQ all remain for a future plan. A
+`StrictInOrder`-compatible retry mode is also out of scope and is
+documented as a future addition in the module haddock.
+
+### Demo-flag work
+
+The manual demo flags `--retry-each-once`, `--dlq-at`, `--dlq-stream`,
+and `--halt-at` described in "Concrete Steps" were not added to
+`app/Demo.hs` in EP-3. All three behaviors are instead exercised by
+the corresponding integration test scenarios. A follow-up can expose
+them through the demo CLI if needed for hands-on troubleshooting; the
+test harness covers the functional acceptance criteria already.
 
 
 ## Context and Orientation

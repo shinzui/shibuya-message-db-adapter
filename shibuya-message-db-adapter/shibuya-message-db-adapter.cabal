@@ -134,7 +134,10 @@ test-suite shibuya-message-db-adapter-test
   other-modules:
     Shibuya.Adapter.MessageDb.CheckpointResumeTest
     Shibuya.Adapter.MessageDb.ConvertTest
+    Shibuya.Adapter.MessageDb.DlqTest
     Shibuya.Adapter.MessageDb.InflightStateTest
+    Shibuya.Adapter.MessageDb.RetryBufferTest
+    Shibuya.Adapter.MessageDb.RetryDlqHaltResumeTest
 
   build-depends:
     , aeson
