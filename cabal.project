@@ -92,5 +92,11 @@ allow-newer:
 allow-older:
   shibuya-core:text
 
-tests: False
 test-show-details: direct
+
+-- Disable tests globally (we only want our own test suite; transitive deps
+-- should not build their test suites). Re-enable tests for just our package.
+tests: False
+
+package shibuya-message-db-adapter
+  tests: True

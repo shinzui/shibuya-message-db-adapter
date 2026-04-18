@@ -88,13 +88,15 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 4: Conversion module
 
-- [ ] Implement `Shibuya.Adapter.MessageDb.Convert.messageToEnvelope` with the exact
+- [x] Implement `Shibuya.Adapter.MessageDb.Convert.messageToEnvelope` with the exact
       signature and field mapping specified under *Interfaces and Dependencies*.
-- [ ] Write pure unit tests in `test/ConvertTest.hs` exercising: a message with no
-      metadata, a message with only a W3C traceparent header, a message with both
-      traceparent and tracestate, and a message whose metadata is a non-object JSON
-      value (must produce `Nothing` for `traceContext`, not crash).
-- [ ] Run `cabal test shibuya-message-db-adapter` and verify 4 tests pass.
+      (2026-04-18) Uses OverloadedRecordDot for accessor syntax, mirroring
+      shibuya-kafka-adapter's convention.
+- [x] Write pure unit tests in `test/Shibuya/Adapter/MessageDb/ConvertTest.hs`
+      exercising empty metadata, traceparent-only, traceparent+tracestate, and
+      non-object metadata. (2026-04-18)
+- [x] Run `cabal test shibuya-message-db-adapter` and verify 4 tests pass.
+      (2026-04-18: `All 4 tests passed (0.00s)`.)
 
 ### Milestone 5: Config module and adapter skeleton
 
