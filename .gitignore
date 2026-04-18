@@ -1,2 +1,4 @@
 .envrc
 .pre-commit-config.yaml
+.claude/
+CLAUDE.local.md
