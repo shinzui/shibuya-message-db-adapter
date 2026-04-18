@@ -62,6 +62,46 @@ seed-messages CATEGORY:
     psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, '{{CATEGORY}}-1'::varchar, 'OrderPlaced'::varchar, '{\"id\": 2}'::jsonb);"
     psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, '{{CATEGORY}}-2'::varchar, 'OrderPlaced'::varchar, '{\"id\": 3}'::jsonb);"
 
+# Seed the jitsurei-basic category with three OrderPlaced / OrderPaid messages.
+[group("db")]
+seed-jitsurei-basic:
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-basic-1'::varchar, 'OrderPlaced'::varchar, '{\"id\": 1}'::jsonb);"
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-basic-2'::varchar, 'OrderPlaced'::varchar, '{\"id\": 2}'::jsonb);"
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-basic-3'::varchar, 'OrderPaid'::varchar, '{\"id\": 3}'::jsonb);"
+
+# Seed two messages for the retry demo.
+[group("db")]
+seed-jitsurei-retry:
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-retry-1'::varchar, 'OrderPlaced'::varchar, '{\"id\": 1}'::jsonb);"
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-retry-2'::varchar, 'OrderPlaced'::varchar, '{\"id\": 2}'::jsonb);"
+
+# Seed three messages for the DLQ demo: Good, Bad, Good.
+[group("db")]
+seed-jitsurei-dlq:
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-dlq-1'::varchar, 'OrderPlaced'::varchar, '{\"id\": 1}'::jsonb);"
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-dlq-2'::varchar, 'BadFormat'::varchar, '{\"id\": 2}'::jsonb);"
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-dlq-3'::varchar, 'OrderPlaced'::varchar, '{\"id\": 3}'::jsonb);"
+
+# Seed ten messages for the checkpoint-restart demo.
+[group("db")]
+seed-jitsurei-checkpoint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for n in 1 2 3 4 5 6 7 8 9 10; do
+      psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-checkpoint-${n}'::varchar, 'OrderPlaced'::varchar, ('{\"id\": ' || ${n} || '}')::jsonb);"
+    done
+
+# Seed thirty messages across six category streams for the multi-partition demo.
+[group("db")]
+seed-jitsurei-partition:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for cat in cat1 cat2 cat3 cat4 cat5 cat6; do
+      for n in 1 2 3 4 5; do
+        psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, 'jitsurei-${cat}-${n}'::varchar, 'OrderPlaced'::varchar, ('{\"id\": ' || ${n} || '}')::jsonb);"
+      done
+    done
+
 
 # --- Build ---
 

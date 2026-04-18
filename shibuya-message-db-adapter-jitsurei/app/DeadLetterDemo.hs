@@ -1,18 +1,15 @@
-{- | Minimal end-to-end example for the message-db adapter.
+{- | Dead-letter example: messages whose @messageType@ begins with
+\"Bad\" are dead-lettered; the rest are AckOk'd.
 
-Subscribes to category @jitsurei-basic@ in the dev database pointed to
-by @$PG_CONNECTION_STRING@, prints each message's stream, type, and
-global position, and AckOks it. Blocks on the adapter's poll loop
-after draining every message written so far; Ctrl-C to exit.
+Configured with @dlqStrategy = DlqWriteToStream (Stream \"demo-dlq\")@,
+so failed messages are written to the @demo-dlq@ stream. After running,
+query psql to confirm:
 
-Seed messages with @just seed-jitsurei-basic@ or by hand via:
+    psql -c "SELECT stream_name, type FROM message_store.messages \
+             WHERE stream_name = 'demo-dlq';"
 
-    psql -c "SELECT write_message(gen_random_uuid()::varchar, \
-             'jitsurei-basic-1'::varchar, 'OrderPlaced'::varchar, \
-             '{\"id\": 1}'::jsonb);"
-
-This is the simplest possible adapter wiring: open a pool, run the
-effect stack, construct the adapter, and drain its @source@ stream.
+Seed: @just seed-jitsurei-dlq@ (three messages into category
+@jitsurei-dlq@ with alternating @OrderPlaced@ and @BadFormat@ types).
 -}
 module Main (main) where
 
@@ -31,16 +28,19 @@ import Hasql.Pool.Config qualified as PoolConfig
 import MessageDb.CheckpointStore.Effectful (runPostgresCheckointStore)
 import MessageDb.Effectful (runMessageDb)
 import MessageDb.Message qualified as Mdb
+import MessageDb.Message.Stream (Stream)
 import MessageDb.Message.Stream qualified as Stream
 import OpenTelemetry.Attributes qualified as OTel
 import OpenTelemetry.Trace.Core qualified as OTel
 import Shibuya.Adapter (Adapter (..))
 import Shibuya.Adapter.MessageDb (
     CategoryStream (..),
+    DlqStrategy (..),
+    MessageDbAdapterConfig (..),
     defaultConfig,
     messageDbAdapter,
  )
-import Shibuya.Core.Ack (AckDecision (..))
+import Shibuya.Core.Ack (AckDecision (..), DeadLetterReason (..))
 import Shibuya.Core.AckHandle (AckHandle (..))
 import Shibuya.Core.Ingested (Ingested (..))
 import Shibuya.Core.Types (Envelope (..))
@@ -50,15 +50,25 @@ import System.Environment (getEnv)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 
 category :: Text.Text
-category = "jitsurei-basic"
+category = "jitsurei-dlq"
 
 subscription :: Text.Text
-subscription = "jitsurei-basic"
+subscription = "jitsurei-dlq"
+
+dlqStream :: Stream
+dlqStream =
+    case Stream.parseEither "demo-dlq" of
+        Left e -> error ("demo-dlq is not a valid message-db stream name: " <> Text.unpack e)
+        Right s -> s
 
 main :: IO ()
 main = do
     hSetBuffering stdout LineBuffering
-    Text.IO.putStrLn "[basic-consumer] Starting..."
+    Text.IO.putStrLn "[dead-letter-demo] Starting..."
+    let cfg =
+            (defaultConfig (CategoryStream category) subscription)
+                { dlqStrategy = DlqWriteToStream dlqStream
+                }
     pool <- acquirePool
     tracer <- noopTracer
     outer <-
@@ -71,33 +81,29 @@ main = do
             . runMessageDb
             . runPostgresCheckointStore
             $ do
-                adapter <-
-                    messageDbAdapter
-                        (defaultConfig (CategoryStream category) subscription)
-                SStream.fold (Fold.drainMapM printMessage) adapter.source
+                adapter <- messageDbAdapter cfg
+                SStream.fold (Fold.drainMapM handleMaybeBad) adapter.source
     Pool.release pool
     case outer of
         Left ue -> Text.IO.putStrLn ("pool usage error: " <> Text.pack (show ue))
         Right (Left se) -> Text.IO.putStrLn ("session error: " <> Text.pack (show se))
         Right (Right ()) -> pure ()
 
-printMessage ::
+handleMaybeBad ::
     (IOE :> es) =>
     Ingested es Mdb.Message ->
     Eff es ()
-printMessage Ingested{envelope = Envelope{payload = msg}, ack = AckHandle finalize} = do
-    let streamTxt = Stream.toText msg.stream
-        Mdb.GlobalPosition gp = msg.globalPosition
-        Mdb.MessageType mt = msg.messageType
+handleMaybeBad Ingested{envelope = Envelope{payload = msg}, ack = AckHandle finalize} = do
+    let Mdb.MessageType mt = msg.messageType
+        streamTxt = Stream.toText msg.stream
     liftIO $
         Text.IO.putStrLn $
-            "[jitsurei-basic] stream="
-                <> streamTxt
-                <> " type="
-                <> mt
-                <> " pos="
-                <> Text.pack (show gp)
-    finalize AckOk
+            "[jitsurei-dlq] stream=" <> streamTxt <> " type=" <> mt
+    if "Bad" `Text.isPrefixOf` mt
+        then do
+            liftIO $ Text.IO.putStrLn ("[jitsurei-dlq] -> dead-letter " <> mt)
+            finalize (AckDeadLetter (InvalidPayload ("demo: type " <> mt)))
+        else finalize AckOk
 
 acquirePool :: IO Pool.Pool
 acquirePool = do

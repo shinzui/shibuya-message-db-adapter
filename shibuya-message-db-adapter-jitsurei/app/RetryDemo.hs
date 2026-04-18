@@ -1,24 +1,23 @@
-{- | Minimal end-to-end example for the message-db adapter.
+{- | Retry example: each message is delivered twice.
 
-Subscribes to category @jitsurei-basic@ in the dev database pointed to
-by @$PG_CONNECTION_STRING@, prints each message's stream, type, and
-global position, and AckOks it. Blocks on the adapter's poll loop
-after draining every message written so far; Ctrl-C to exit.
+On the first delivery of a given message UUID the handler returns
+@AckRetry (RetryDelay 2)@; on the second it returns @AckOk@. A user
+sees each seeded message printed twice, roughly two seconds apart,
+proving that the adapter's retry buffer re-emits the same message
+without advancing the contiguous-prefix checkpoint.
 
-Seed messages with @just seed-jitsurei-basic@ or by hand via:
-
-    psql -c "SELECT write_message(gen_random_uuid()::varchar, \
-             'jitsurei-basic-1'::varchar, 'OrderPlaced'::varchar, \
-             '{\"id\": 1}'::jsonb);"
-
-This is the simplest possible adapter wiring: open a pool, run the
-effect stack, construct the adapter, and drain its @source@ stream.
+Seed: @just seed-jitsurei-retry@ (category @jitsurei-retry@).
+Run:  @cabal run retry-demo@.
 -}
 module Main (main) where
 
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar)
 import Control.Monad.IO.Class (liftIO)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
+import Data.UUID (UUID)
 import Effectful (Eff, IOE, runEff, (:>))
 import Effectful.Concurrent (runConcurrent)
 import Effectful.Error.Static (runErrorNoCallStack)
@@ -31,7 +30,6 @@ import Hasql.Pool.Config qualified as PoolConfig
 import MessageDb.CheckpointStore.Effectful (runPostgresCheckointStore)
 import MessageDb.Effectful (runMessageDb)
 import MessageDb.Message qualified as Mdb
-import MessageDb.Message.Stream qualified as Stream
 import OpenTelemetry.Attributes qualified as OTel
 import OpenTelemetry.Trace.Core qualified as OTel
 import Shibuya.Adapter (Adapter (..))
@@ -40,7 +38,7 @@ import Shibuya.Adapter.MessageDb (
     defaultConfig,
     messageDbAdapter,
  )
-import Shibuya.Core.Ack (AckDecision (..))
+import Shibuya.Core.Ack (AckDecision (..), RetryDelay (..))
 import Shibuya.Core.AckHandle (AckHandle (..))
 import Shibuya.Core.Ingested (Ingested (..))
 import Shibuya.Core.Types (Envelope (..))
@@ -50,15 +48,16 @@ import System.Environment (getEnv)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 
 category :: Text.Text
-category = "jitsurei-basic"
+category = "jitsurei-retry"
 
 subscription :: Text.Text
-subscription = "jitsurei-basic"
+subscription = "jitsurei-retry"
 
 main :: IO ()
 main = do
     hSetBuffering stdout LineBuffering
-    Text.IO.putStrLn "[basic-consumer] Starting..."
+    Text.IO.putStrLn "[retry-demo] Starting..."
+    deliveries <- newTVarIO (Map.empty :: Map UUID Int)
     pool <- acquirePool
     tracer <- noopTracer
     outer <-
@@ -74,30 +73,34 @@ main = do
                 adapter <-
                     messageDbAdapter
                         (defaultConfig (CategoryStream category) subscription)
-                SStream.fold (Fold.drainMapM printMessage) adapter.source
+                SStream.fold
+                    (Fold.drainMapM (handleRetry deliveries))
+                    adapter.source
     Pool.release pool
     case outer of
         Left ue -> Text.IO.putStrLn ("pool usage error: " <> Text.pack (show ue))
         Right (Left se) -> Text.IO.putStrLn ("session error: " <> Text.pack (show se))
         Right (Right ()) -> pure ()
 
-printMessage ::
+handleRetry ::
     (IOE :> es) =>
+    TVar (Map UUID Int) ->
     Ingested es Mdb.Message ->
     Eff es ()
-printMessage Ingested{envelope = Envelope{payload = msg}, ack = AckHandle finalize} = do
-    let streamTxt = Stream.toText msg.stream
-        Mdb.GlobalPosition gp = msg.globalPosition
-        Mdb.MessageType mt = msg.messageType
+handleRetry deliveries Ingested{envelope = Envelope{payload = msg}, ack = AckHandle finalize} = do
+    let Mdb.MessageId uid = msg.messageId
+    attempt <- liftIO $ atomically $ do
+        modifyTVar' deliveries (Map.insertWith (+) uid 1)
+        Map.findWithDefault 0 uid <$> readTVar deliveries
     liftIO $
         Text.IO.putStrLn $
-            "[jitsurei-basic] stream="
-                <> streamTxt
-                <> " type="
-                <> mt
-                <> " pos="
-                <> Text.pack (show gp)
-    finalize AckOk
+            "[retry-demo] delivery "
+                <> Text.pack (show attempt)
+                <> " of message "
+                <> Text.pack (show uid)
+    if attempt < 2
+        then finalize (AckRetry (RetryDelay 2))
+        else finalize AckOk
 
 acquirePool :: IO Pool.Pool
 acquirePool = do

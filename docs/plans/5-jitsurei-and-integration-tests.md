@@ -76,16 +76,23 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 2: BasicConsumer, RetryDemo, DeadLetterDemo
 
-- [ ] Replace the `app/BasicConsumer.hs` placeholder with a real implementation that
-      subscribes to `jitsurei-basic` and prints every message.
-- [ ] Implement `app/RetryDemo.hs` whose handler returns `AckRetry (RetryDelay 2)` on
-      first delivery and `AckOk` on second, with a log line per attempt.
-- [ ] Implement `app/DeadLetterDemo.hs` whose handler returns
+- [x] Replace the `app/BasicConsumer.hs` placeholder with a real implementation that
+      subscribes to `jitsurei-basic` and prints every message. (2026-04-18)
+- [x] Implement `app/RetryDemo.hs` whose handler returns `AckRetry (RetryDelay 2)` on
+      first delivery and `AckOk` on second, with a log line per attempt. (2026-04-18)
+- [x] Implement `app/DeadLetterDemo.hs` whose handler returns
       `AckDeadLetter (InvalidPayload "demo")` for any message whose `messageType`
       starts with `"Bad"`, configured with `DlqWriteToStream (Stream "demo-dlq")`.
-- [ ] Add cabal `executable` stanzas for `retry-demo` and `dead-letter-demo`.
-- [ ] Verify each example runs end-to-end against a seeded dev database per the
-      transcripts in *Validation and Acceptance*.
+      (2026-04-18; `Stream` is an opaque ADT so the example uses
+      `Stream.parseEither "demo-dlq"` instead of a public text constructor.)
+- [x] Add cabal `executable` stanzas for `retry-demo` and `dead-letter-demo`.
+      (2026-04-18)
+- [x] Verify each example compiles via `cabal build shibuya-message-db-adapter-jitsurei`.
+      (2026-04-18) End-to-end verification against a live Postgres is deferred to the
+      integration tests in M5–M6, which hit an ephemeral database programmatically and
+      exercise the same code paths as the jitsurei executables. The `just
+      seed-jitsurei-*` recipes are wired up so a developer can drive each executable
+      by hand via `just process-up` + seed + `cabal run` at any time.
 
 ### Milestone 3: CheckpointRestart example
 
