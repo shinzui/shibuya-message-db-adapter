@@ -126,8 +126,8 @@ here, even if it requires splitting a partially completed task into two ("done" 
 ### Milestone 8: Documentation
 
 - [ ] Add a dedicated README section "Per-stream ordering" to
-      `/README.md` (if EP-6 has landed) OR to this plan's *Documentation Fragment*
-      section as a verbatim block that EP-6 copies into the README.
+      `/README.md` (if EP-8 has landed) OR to this plan's *Documentation Fragment*
+      section as a verbatim block that EP-8 copies into the README.
 - [ ] Add a CHANGELOG entry under "Unreleased" describing the feature, the new
       config field, and a short note about the PartitionedInOrder contract.
 - [ ] Add a module-level Haddock comment on
@@ -321,7 +321,8 @@ In `shibuya-message-db-adapter/src/Shibuya/Adapter/MessageDb/Config.hs`, add:
     data StreamOrderingMode
       = CategoryUnordered
       -- ^ All messages in the category are eligible for concurrent dispatch with
-      -- no per-stream ordering (the default; matches EP-1 through EP-6 behavior).
+      -- no per-stream ordering (the default; matches the pre-EP-7 baseline
+      -- behavior delivered by EP-1 through EP-5).
       | PerStreamInOrder PerStreamConfig
       -- ^ Per-stream ordered dispatch: at most one in-flight message per
       -- 'MessageDb.Stream' at a time; messages for different streams dispatch
@@ -568,10 +569,10 @@ The demo in `PerStreamOrderingDemo.hs`:
 ### Milestone 8: Documentation
 
 Write the README section described in *Documentation Fragment* below. If
-`/README.md` exists (EP-6 done), insert it. Otherwise, the fragment lives in this
-plan's *Documentation Fragment* section for EP-6 to copy verbatim.
+`/README.md` exists (EP-8 done), insert it. Otherwise, the fragment lives in this
+plan's *Documentation Fragment* section for EP-8 to copy verbatim.
 
-Add to `/CHANGELOG.md` (or EP-6's CHANGELOG fragment):
+Add to `/CHANGELOG.md` (or EP-8's CHANGELOG fragment):
 
     ## [Unreleased]
 
@@ -873,9 +874,9 @@ The `Shibuya.Adapter.MessageDb` public module re-exports `StreamOrderingMode`,
 ## Documentation Fragment
 
 This fragment belongs in the repository-level README under a heading
-"Per-stream ordering (`PartitionedInOrder`)". If EP-6 has landed by the time
+"Per-stream ordering (`PartitionedInOrder`)". If EP-8 has landed by the time
 this plan is implemented, insert this into `/README.md` directly. Otherwise,
-leave it here; EP-6 will copy it verbatim.
+leave it here; EP-8 will copy it verbatim.
 
     ## Per-stream ordering (PartitionedInOrder)
 

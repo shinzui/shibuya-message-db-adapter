@@ -48,14 +48,19 @@ bootstrap-message-db:
     createdb $PGDATABASE || true
     MESSAGE_DB_ROOT=${MESSAGE_DB_ROOT:-/Users/shinzui/Keikaku/hub/event-sourcing/message-db-project/message-db} \
       && DATABASE_NAME=$PGDATABASE CREATE_DATABASE=off $MESSAGE_DB_ROOT/database/install.sh
+    psql -v ON_ERROR_STOP=1 -c "ALTER DATABASE $PGDATABASE SET search_path = message_store, public;"
 
 # Seed three sample messages into a category stream.
 # Usage: just seed-messages orders
+#
+# message_store.write_message takes 4 required args (id, stream_name, type,
+# data) plus two optional (metadata, expected_version). All Text args must
+# be explicitly cast to varchar so Postgres can resolve the overload.
 [group("db")]
 seed-messages CATEGORY:
-    psql -v ON_ERROR_STOP=1 -c "SELECT write_message(gen_random_uuid()::varchar, '{{CATEGORY}}-1', 'OrderPlaced', '{\"id\": 1}'::jsonb, NULL);"
-    psql -v ON_ERROR_STOP=1 -c "SELECT write_message(gen_random_uuid()::varchar, '{{CATEGORY}}-1', 'OrderPlaced', '{\"id\": 2}'::jsonb, NULL);"
-    psql -v ON_ERROR_STOP=1 -c "SELECT write_message(gen_random_uuid()::varchar, '{{CATEGORY}}-2', 'OrderPlaced', '{\"id\": 3}'::jsonb, NULL);"
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, '{{CATEGORY}}-1'::varchar, 'OrderPlaced'::varchar, '{\"id\": 1}'::jsonb);"
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, '{{CATEGORY}}-1'::varchar, 'OrderPlaced'::varchar, '{\"id\": 2}'::jsonb);"
+    psql -v ON_ERROR_STOP=1 -c "SET search_path = message_store, public; SELECT write_message(gen_random_uuid()::varchar, '{{CATEGORY}}-2'::varchar, 'OrderPlaced'::varchar, '{\"id\": 3}'::jsonb);"
 
 
 # --- Build ---

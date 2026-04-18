@@ -168,9 +168,11 @@ messageDbSource shutdownSignal positionRef ackedRef config =
             else do
                 let lastMsg = Vector.last batch
                     -- message-db's get_category_messages filter is
-                    -- `global_position > $2`, so the next request starts at the
-                    -- last emitted position. The server skips gaps itself.
-                    next = lastMsg.globalPosition
+                    -- `global_position >= $2`, so the next request must
+                    -- start one past the last emitted position to avoid
+                    -- re-reading it. The server skips gaps itself.
+                    Mdb.GlobalPosition lastPos = lastMsg.globalPosition
+                    next = Mdb.GlobalPosition (lastPos + 1)
                 liftIO $ atomicModifyIORef' positionRef $ \_ -> (next, ())
                 pure batch
 

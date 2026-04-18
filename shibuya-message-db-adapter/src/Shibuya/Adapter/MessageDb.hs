@@ -65,9 +65,11 @@ highest-acked position), wires them into the polling source, and
 returns an 'Adapter' whose 'Shibuya.Adapter.Adapter.shutdown' action
 flips the 'TVar'. The source stream terminates on the next iteration.
 
-Both 'IORef's start at @GlobalPosition 0@: message-db's
-@get_category_messages@ filters @global_position > $2@, so a start
-value of 0 returns the entire category from the beginning.
+@positionRef@ starts at @GlobalPosition 1@ (message-db positions are
+1-indexed and @get_category_messages@ filters @global_position >= $2@).
+@ackedRef@ starts at @GlobalPosition 0@ so the first @AckOk@ strictly
+advances the high-watermark. EP-2 will replace both constants with
+values loaded from a durable checkpoint store.
 -}
 messageDbAdapter ::
     (MessageDb :> es, Concurrent :> es, IOE :> es) =>
@@ -75,7 +77,11 @@ messageDbAdapter ::
     Eff es (Adapter es Mdb.Message)
 messageDbAdapter config = do
     shutdownSignal <- liftIO (newTVarIO False)
-    positionRef <- liftIO (newIORef (Mdb.GlobalPosition 0))
+    -- message-db positions are 1-indexed; the server filter is
+    -- `global_position >= $2`, so starting at 1 returns the whole
+    -- category (positions 1..). ackedRef stays at 0 so the first
+    -- AckOk unambiguously advances the high-watermark.
+    positionRef <- liftIO (newIORef (Mdb.GlobalPosition 1))
     ackedRef <- liftIO (newIORef (Mdb.GlobalPosition 0))
     let CategoryStream catText = config.category
     pure

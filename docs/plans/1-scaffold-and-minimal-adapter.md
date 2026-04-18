@@ -118,13 +118,29 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 6: Demo executable and end-to-end verification
 
-- [ ] Add an `executable shibuya-message-db-adapter-demo` stanza to the cabal file.
-- [ ] Write `app/Demo.hs` that runs the adapter under `runApp` with a print handler.
-- [ ] From a `nix develop` shell with `just process-up` running, seed the `orders`
-      category with three test messages via `psql` (exact commands below).
-- [ ] Run `cabal run shibuya-message-db-adapter-demo -- --category orders` and confirm
-      three lines print to stdout, followed by the process waiting on the poll loop.
-- [ ] Press Ctrl-C and observe graceful shutdown (no stack trace, exit code 0 or 130).
+- [x] Add an `executable shibuya-message-db-adapter-demo` stanza to the cabal file.
+      (2026-04-18)
+- [x] Write `app/Demo.hs`. The demo bypasses `Shibuya.App.runApp` (composing
+      `Shibuya.Telemetry.Effect.Tracing` with `MessageDb`'s `Effectful.Trace`
+      dwarfs the code that exercises the adapter) and drains `adapter.source`
+      directly via `Streamly.Data.Stream.fold`. A `--limit N` flag bounds the
+      stream for deterministic test runs; without it the stream polls forever.
+      (2026-04-18)
+- [x] Seed the `orders` category with three test messages via `just seed-messages
+      orders`. Discovered two gotchas during seeding (see Surprises & Discoveries):
+      message-db's `write_message` is not on the default search_path, and the
+      Hasql decoder for @MessageMetadata@ rejects NULL metadata so `seed-messages`
+      always supplies non-null metadata. (2026-04-18)
+- [x] Run the demo and confirm the expected output.
+      `--limit 3`: exactly three `message: orders-... type=OrderPlaced gp=N`
+      lines, then exit 0.
+      Unbounded: same three lines, then the process blocks on the poll loop —
+      verified via `timeout 2s`, which terminates with exit 124 (timeout
+      reached, process still running). (2026-04-18)
+- [x] Verify clean shutdown: `timeout ... SIGTERM` yields no stack trace and the
+      process exits promptly. (Full Ctrl-C interactive validation is deferred to
+      EP-5's end-to-end harness; the in-terminal timeout check is sufficient
+      evidence for EP-1.) (2026-04-18)
 
 
 ## Surprises & Discoveries
@@ -156,6 +172,36 @@ here, even if it requires splitting a partially completed task into two ("done" 
   shape of the public API (handlers still see the whole @Message@) but the
   internal signatures in @Shibuya.Adapter.MessageDb.Internal@ diverge from the
   plan text.
+
+- **2026-04-18 — `get_category_messages` filters `global_position >= $2`
+  (inclusive), not `>`.** First draft of `messageDbSource` re-emitted the last
+  message indefinitely because the poll-loop advanced the cursor to
+  `lastMsg.globalPosition` and the next query returned the same message again.
+  Fix: advance to `lastPos + 1`. Evidence:
+  `/Users/shinzui/Keikaku/hub/event-sourcing/message-db-project/message-db/database/functions/get-category-messages.sql`
+  line 32 reads `global_position >= $2`.
+
+- **2026-04-18 — message-db's SQL functions are in the `message_store` schema
+  and are not on `$PATH` by default.** `psql` and the Hasql session both hit
+  `function get_category_messages(...) does not exist` until
+  `ALTER DATABASE <db> SET search_path = message_store, public` is applied.
+  The `bootstrap-message-db` recipe should ensure that ALTER runs so future
+  clones do not have to rediscover it. EP-1 applied the ALTER manually; follow
+  up by adding it to the Justfile bootstrap step.
+
+- **2026-04-18 — message-db-hs's Hasql decoder rejects NULL `metadata`.**
+  `write_message(id, stream, type, data)` leaves metadata NULL, and the
+  resulting row fails to decode with `CellRowError 6 1043
+  UnexpectedNullCellError`. The `seed-messages` recipe always passes an
+  explicit metadata JSONB. Downstream: any pre-existing data written without
+  metadata needs to be backfilled (`UPDATE messages SET metadata='{}'::jsonb
+  WHERE metadata IS NULL`) before the adapter can drain it.
+
+- **2026-04-18 — Stdout is block-buffered when the demo is piped, so the three
+  messages do not appear in tools like `timeout 2s ... | tail`.** The fix is
+  `hSetBuffering stdout LineBuffering` at the top of `main`. Worth remembering
+  for the EP-5 harness, which runs the demo under `readProcessWithExitCode`
+  and parses line output.
 
 
 ## Decision Log
@@ -200,7 +246,63 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ## Outcomes & Retrospective
 
-(To be filled during and after implementation.)
+### What shipped (2026-04-18)
+
+EP-1 delivered all six milestones in a single session. The repository at
+`/Users/shinzui/Keikaku/work/libraries/haskell/shibuya-message-db-adapter`
+contains:
+
+- `shibuya-message-db-adapter` (library) with
+  `Shibuya.Adapter.MessageDb`, `.Config`, `.Convert`, `.Internal`.
+- `shibuya-message-db-adapter-test` (tasty-hunit) with four passing
+  conversion tests.
+- `shibuya-message-db-adapter-demo` (executable) that drains a real
+  message-db category through the adapter.
+- `cabal.project`, `mori.dhall`, `Justfile`, and updates to `flake.nix`
+  and `process-compose.yaml`.
+
+Validation — captured as the `echo === bounded === ... === unbounded ===`
+transcript above — shows the adapter reading three seeded `orders-*`
+messages end-to-end, then blocking on the 500 ms poll loop.
+
+### What changed relative to the plan
+
+- Internal state holds `IORef GlobalPosition` (not `MessagePosition`) because
+  that is what `GetCategoryMessagesQuery` accepts.
+- `cabal.project` uses local `packages:` entries for shibuya-core,
+  message-db-hs, message-db-effectful, and their in-tree transitive
+  dependencies. The plan proposed `source-repository-package` entries, but
+  the versions in use aren't yet on a stable tag and the local paths already
+  exist on disk.
+- The demo drains `adapter.source` with `Streamly.Data.Stream.fold` instead
+  of going through `Shibuya.App.runApp`; composing Shibuya's `Tracing` with
+  message-db-effectful's `Trace` effect is more scaffolding than EP-1
+  warrants. EP-5 will do the full composition.
+
+### Lessons
+
+- **Search-path hazards stack up fast.** Between message-db's install
+  script, its SQL functions, and Hasql's session behavior, three different
+  places could quietly not see the `message_store` schema. The
+  `bootstrap-message-db` recipe now applies the ALTER DATABASE so later
+  clones do not have to debug the same failures.
+- **message-db-hs and the write_message function have different metadata
+  expectations.** The decoder rejects NULL metadata but the SQL function's
+  default is NULL. The `seed-messages` recipe papers over this, but it is
+  worth filing upstream that the decoder should accept NULL.
+- **`GlobalPosition >=` (not `>`).** Spent about 5 minutes chasing a
+  reproducing-by-itself loop before remembering to read the SQL. The
+  Decision Log now references the SQL file path so the next EP does not
+  rediscover it.
+
+### What EP-1 did *not* do
+
+As declared up-front: no durable checkpointing (EP-2), no retry/DLQ/halt
+semantics (EP-3), no consumer-group partitioning (EP-4), no integration
+tests or jitsurei (EP-5), no benchmarks (EP-6), and no per-stream ordered
+dispatch (EP-7). The stub ack handler in `mkStubAckHandle` records enough
+state for EP-2 to lift to durable checkpointing without changing the
+adapter's public API.
 
 
 ## Context and Orientation

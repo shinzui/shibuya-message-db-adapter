@@ -57,8 +57,10 @@ What is in scope:
   `shibuya-project/shibuya/docs/BROADWAY_COMPARISON.md:92`).
 - A companion `shibuya-message-db-adapter-jitsurei` package with runnable examples and an
   integration test suite running against an ephemeral Postgres (via `shinzui/ephemeral-pg`).
-- A benchmarks package `shibuya-message-db-adapter-bench` for the conversion hot path.
-- Hackage-ready release metadata (README, CHANGELOG, LICENSE, cabal descriptions).
+- A benchmarks package `shibuya-message-db-adapter-bench` for the conversion hot path
+  (delivered by EP-6).
+- Hackage-ready release metadata — README, CHANGELOG, LICENSE, cabal descriptions,
+  and a clean Haddock sweep (delivered by EP-8 as the closing act of the initiative).
 
 What is explicitly excluded:
 
@@ -90,25 +92,34 @@ The decomposition is driven by three principles from
 3. *Respect natural ordering*: the adapter cannot do anything without a conversion and a
    polling stream, so that is EP-1. Durable checkpointing is meaningless without
    something to poll, so it is EP-2. Retry and DLQ build on checkpoint accounting, so
-   they are EP-3. Partitioning interacts with checkpoint scope, so it is EP-4. Examples
-   and benchmarks come after the adapter is feature-complete (EP-5, EP-6).
+   they are EP-3. Partitioning interacts with checkpoint scope, so it is EP-4. Examples,
+   per-stream dispatch, and benchmarks come after the adapter is feature-complete
+   (EP-5, EP-7, EP-6); release metadata closes the initiative as EP-8.
 
 Alternatives considered and rejected:
 
 - *One big plan.* The initial `shibuya-kafka-adapter` was delivered as a single plan, but
   Kafka's offset model is simpler than the inflight/contiguous-prefix bookkeeping this
   adapter needs, and message-db-subscription has more surface area (checkpoint store,
-  consumer groups, producer/consumer/worker split) to absorb. Splitting into six plans
+  consumer groups, producer/consumer/worker split) to absorb. Splitting into eight plans
   keeps each one reviewable and lets EP-4 (partitioning) run partly in parallel with
   EP-3 (retry/DLQ).
 - *Splitting conversion from polling in EP-1.* The conversion function is small and only
   meaningful when exercised by the polling stream; merging them keeps EP-1 a single
   demonstrable milestone.
-- *Merging EP-5 and EP-6 (examples, tests, benchmarks, release).* These are three
+- *Merging EP-5, EP-6, and EP-8 (examples, tests, benchmarks, release).* These are three
   distinct audiences — integration tests and examples serve users learning the adapter,
   benchmarks serve regression tracking, release metadata serves Hackage readers — and
   can be picked up by different contributors. Keeping them separate preserves review
   focus.
+- *Bundling benchmarks with release metadata in a single EP-6.* The original plan
+  combined them, but benchmarks land as soon as the main library exists (EP-1) while
+  release metadata must describe every shipped feature including the per-stream
+  dispatcher (EP-7). Bundling forced one of two bad choices: either run benchmarks
+  late so the release notes could mention them, or ship release metadata that ignored
+  later-landing features. Splitting into EP-6 (benchmarks-only) and EP-8
+  (release-only) lets benchmarks land early and lets the release describe the full
+  feature set.
 
 
 ## Exec-Plan Registry
@@ -120,8 +131,9 @@ Alternatives considered and rejected:
 | 3 | Retry, dead-letter, and halt handling | docs/plans/3-retry-dlq-halt.md | EP-2 | None | Not Started |
 | 4 | Consumer-group partitioning | docs/plans/4-consumer-group-partitioning.md | EP-2 | EP-3 | Not Started |
 | 5 | Jitsurei examples and integration test suite | docs/plans/5-jitsurei-and-integration-tests.md | EP-3 | EP-4 | Not Started |
-| 6 | Benchmarks and release metadata | docs/plans/6-benchmarks-and-release.md | EP-1 | EP-5, EP-7 | Not Started |
-| 7 | Per-stream ordered dispatch (PartitionedInOrder) | docs/plans/7-per-stream-ordered-dispatch.md | EP-3 | EP-5, EP-6 | Not Started |
+| 6 | Benchmarks | docs/plans/6-benchmarks.md | EP-1 | EP-2, EP-4 | Not Started |
+| 7 | Per-stream ordered dispatch (PartitionedInOrder) | docs/plans/7-per-stream-ordered-dispatch.md | EP-3 | EP-5, EP-8 | Not Started |
+| 8 | Release metadata and Hackage prep | docs/plans/8-release-metadata.md | EP-7 | EP-2, EP-3, EP-4, EP-5, EP-6 | Not Started |
 
 Status values: Not Started, In Progress, Complete, Cancelled.
 Hard Deps and Soft Deps reference other rows by their # prefix.
@@ -160,29 +172,41 @@ partitioning example is desirable; if EP-4 is not complete when EP-5 begins, the
 partitioning example can be stubbed or omitted and added in a follow-up.
 
 EP-6 hard-depends on EP-1 (the `shibuya-message-db-adapter-bench` package must live
-alongside the main package) and soft-depends on EP-5 (realistic end-to-end scenarios
-inform what to benchmark) and EP-7 (per-stream dispatch ships its own README section
-and benchmark contributions). The release metadata subsection of EP-6 should include
-a CHANGELOG entry reflecting EP-5's examples and EP-7's feature, so pragmatic
-ordering is "finish EP-5 and EP-7 first".
+alongside the main package). It soft-depends on EP-2 (the InflightState benchmark
+milestone is gated on EP-2's module existing) and EP-4 (the categoryPartition
+benchmark milestone is gated on EP-4's helper existing). When EP-6 is implemented
+before EP-2 or EP-4 lands, the conditional milestones are skipped with an entry in
+the Decision Log; they can be revisited as a follow-up once the gating plan lands.
+EP-6 covers benchmarks **only**; release metadata is EP-8.
 
 EP-7 hard-depends on EP-3 — the per-stream dispatcher interacts with every terminal
 ack decision (`AckOk`, `AckDeadLetter`, `AckHalt`) and with `AckRetry`'s
 delayed-re-emission path, so it cannot be built without the full ack surface. EP-7
 soft-depends on EP-5 (to add a `PerStreamOrderingDemo` example and per-stream
-integration tests into the jitsurei package if it exists) and EP-6 (to add a README
-section for the feature). If EP-5 or EP-6 have not landed when EP-7 begins, EP-7
+integration tests into the jitsurei package if it exists) and EP-8 (to add a README
+section for the feature). If EP-5 or EP-8 have not landed when EP-7 begins, EP-7
 includes a standalone harness for its integration tests and writes its README
-section as an in-plan fragment that EP-6 later incorporates.
+section as an in-plan fragment that EP-8 later incorporates.
 
-**Parallelism opportunities.** Once EP-2 is complete, EP-3 and EP-4 can run in parallel
-on separate branches. They touch `Shibuya.Adapter.MessageDb.Config` and
-`Shibuya.Adapter.MessageDb.Internal` but at different call sites (retry buffer vs.
-partition filter). Merging order should be EP-3 first, then EP-4, because EP-4's
+EP-8 hard-depends on EP-7 — the last feature plan. The release CHANGELOG, README,
+and Haddock must describe per-stream dispatch alongside everything else, so EP-7
+must land before EP-8 can produce the canonical `0.1.0.0` release notes. EP-8
+soft-depends on EP-2 through EP-6 because each adds modules, fields, examples, or a
+separate package that the release describes. Running EP-8 before any soft-dep plan
+lands is permitted but yields an incomplete release; the soft-dep label communicates
+"wait for these in practice." EP-8 is intended as the **last act before tagging a
+release**.
+
+**Parallelism opportunities.** Once EP-1 is complete, EP-6 (benchmarks) can run in
+parallel with the entire feature track (EP-2 through EP-5, EP-7) because it depends
+only on the main library being importable. Once EP-2 is complete, EP-3 and EP-4 can
+run in parallel on separate branches. They touch `Shibuya.Adapter.MessageDb.Config`
+and `Shibuya.Adapter.MessageDb.Internal` but at different call sites (retry buffer
+vs. partition filter). Merging order should be EP-3 first, then EP-4, because EP-4's
 integration tests exercise retry behavior. Once EP-3 is complete, EP-7 (per-stream
-dispatch) can run in parallel with EP-4, EP-5, and EP-6 — the three touch distinct
-subsystems (per-stream FIFO + ack-wrapping vs. category-level hash filter vs. test
-harness and release).
+dispatch) can run in parallel with EP-4 and EP-5 — they touch distinct subsystems
+(per-stream FIFO + ack-wrapping vs. category-level hash filter vs. test harness).
+EP-8 (release metadata) is the natural sequencing tail and runs last.
 
 
 ## Integration Points
@@ -240,8 +264,17 @@ harness and release).
    validated at startup but not enforced by the runner. EP-7 documents that
    `PartitionedInOrder + Async N` is the valid way to run the adapter's per-stream
    ordered dispatch, and that the adapter — not Shibuya — guarantees per-stream
-   order by limiting in-flight messages to one per stream. EP-6's README writes
-   this contract into the user-facing documentation.
+   order by limiting in-flight messages to one per stream. EP-8's README writes
+   this contract into the user-facing documentation by inserting EP-7's
+   *Documentation Fragment* verbatim.
+
+9. **Release metadata fields** — EP-8 owns the `synopsis`, `description`,
+   `homepage`, `bug-reports`, `maintainer`, `copyright`, `license`, `license-file`,
+   `extra-doc-files`, `category`, and `source-repository head` fields on every
+   `.cabal` file in the repository. Earlier plans add their packages to
+   `cabal.project` and `mori.dhall` and may set placeholder `synopsis` values, but
+   the canonical metadata is filled in by EP-8 in a single uniform pass. EP-8 also
+   owns the top-level `LICENSE`, `README.md`, and `CHANGELOG.md` files.
 
 
 ## Progress
@@ -263,13 +296,19 @@ plan.
 - [ ] EP-4: Partition field populated on the envelope; partition-scoped checkpoint name.
 - [ ] EP-5: Jitsurei package scaffolded with BasicConsumer, RetryDemo, DeadLetterDemo, CheckpointRestart, MultiPartition examples.
 - [ ] EP-5: Integration test suite running against `ephemeral-pg` covers full lifecycle.
-- [ ] EP-6: `shibuya-message-db-adapter-bench` with tasty-bench micro-benchmarks of the conversion hot path.
-- [ ] EP-6: README, CHANGELOG, LICENSE, cabal descriptions ready for Hackage.
+- [ ] EP-6: `shibuya-message-db-adapter-bench` package scaffolded; tasty-bench wired in.
+- [ ] EP-6: Conversion benchmarks (`messageToEnvelope`, `extractTraceContext`) reporting timings.
+- [ ] EP-6: InflightState benchmarks added (conditional on EP-2) or skipped with Decision Log entry.
+- [ ] EP-6: categoryPartition benchmark added (conditional on EP-4) or skipped with Decision Log entry.
 - [ ] EP-7: `StreamOrderingMode` config and per-stream dispatcher implemented.
 - [ ] EP-7: Per-stream ordering preserved under concurrent dispatch (unit tests).
 - [ ] EP-7: Integration test with interleaved writes across streams proves per-stream order + cross-stream parallelism.
 - [ ] EP-7: `PerStreamOrderingDemo` jitsurei example shipped.
-- [ ] EP-7: README section and CHANGELOG entry documenting `PartitionedInOrder` semantics.
+- [ ] EP-7: README section and CHANGELOG entry documenting `PartitionedInOrder` semantics (drafted as fragment for EP-8).
+- [ ] EP-8: LICENSE, README, and CHANGELOG written at repo root.
+- [ ] EP-8: `.cabal` metadata (synopsis, description, homepage, source-repository) filled on every package; `cabal check` clean.
+- [ ] EP-8: Haddock sweep — module and function docs on the public surface; `-Wmissing-docs` clean on the main library.
+- [ ] EP-8: `cabal sdist all` dry-run produces tarballs for every package.
 
 
 ## Surprises & Discoveries
@@ -348,6 +387,21 @@ plan.
   Implementing this inside the adapter is the intended path.
   Date: 2026-04-18
 
+- Decision: Split the original EP-6 (Benchmarks and release metadata) into EP-6
+  (Benchmarks only) and a new EP-8 (Release metadata and Hackage prep). The EP-6
+  file was renamed `docs/plans/6-benchmarks.md`; EP-8 lives at
+  `docs/plans/8-release-metadata.md`. EP-7's references to EP-6's README/CHANGELOG
+  fragment slots were redirected to EP-8.
+  Rationale: Benchmarks and release metadata serve different timing constraints.
+  Benchmarks land as soon as the main library exists (EP-1) — they're a
+  regression-tracking concern that benefits from being available early. Release
+  metadata is the closing act that must describe every shipped feature including
+  per-stream dispatch (EP-7). Bundling them forced one of two bad choices: either
+  delay benchmarks until every feature plan landed, or ship release notes that
+  ignored later-landing features. Splitting decouples the two timelines and lets
+  EP-8 own the canonical `0.1.0.0` release as the natural sequencing tail.
+  Date: 2026-04-18
+
 - Decision: Per-stream dispatch was made its own plan (EP-7) rather than being folded
   into EP-4 (consumer-group partitioning).
   Rationale: The two features address different scaling axes — EP-4 distributes a
@@ -370,3 +424,20 @@ plan.
 ## Outcomes & Retrospective
 
 (To be filled during and after implementation.)
+
+
+## Revisions
+
+- 2026-04-18: Split EP-6 (Benchmarks and release metadata) into EP-6 (Benchmarks
+  only) and a new EP-8 (Release metadata and Hackage prep). Renamed
+  `docs/plans/6-benchmarks-and-release.md` to `docs/plans/6-benchmarks.md` and
+  trimmed its content to Milestones 1-4 (scaffold, conversion benchmarks,
+  conditional InflightState benchmarks, conditional categoryPartition benchmark).
+  Created `docs/plans/8-release-metadata.md` with the release content (LICENSE /
+  README / CHANGELOG, .cabal polish, Haddock sweep, sdist dry-run). EP-6's deps
+  changed from `Hard EP-1, Soft EP-5+EP-7` to `Hard EP-1, Soft EP-2+EP-4`. EP-8
+  added with `Hard EP-7, Soft EP-2..EP-6`. EP-7's soft-deps updated from
+  `EP-5, EP-6` to `EP-5, EP-8` (it now hands its README fragment to EP-8 instead
+  of EP-6). Progress checklist regrouped accordingly. Decision Log entry added.
+  Integration Points #8 redirected from EP-6 to EP-8, and a new #9 documents
+  EP-8's ownership of release-metadata fields.
