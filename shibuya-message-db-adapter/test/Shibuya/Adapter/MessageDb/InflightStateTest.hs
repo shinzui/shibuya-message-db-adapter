@@ -21,11 +21,11 @@ tests =
     testGroup
         "InflightState"
         [ testCase "empty state returns Nothing" $ do
-            s <- newInflightState (gp 0)
+            s <- newInflightState 100 (gp 0)
             r <- atomically (advanceCheckpointTo s)
             r @?= Nothing
         , testCase "single complete advances, second call returns Nothing" $ do
-            s <- newInflightState (gp 0)
+            s <- newInflightState 100 (gp 0)
             atomically $ do
                 recordIngested s (gp 1)
                 recordAckResult s (gp 1) AckComplete
@@ -34,7 +34,7 @@ tests =
             r2 <- atomically (advanceCheckpointTo s)
             r2 @?= Nothing
         , testCase "AckRetry blocks advancement past retry position" $ do
-            s <- newInflightState (gp 0)
+            s <- newInflightState 100 (gp 0)
             atomically $ do
                 mapM_ (recordIngested s . gp) [1, 2, 3]
                 recordAckResult s (gp 1) AckComplete
@@ -43,7 +43,7 @@ tests =
             r <- atomically (advanceCheckpointTo s)
             r @?= Just (gp 1)
         , testCase "interleaved: pending middle position blocks advancement" $ do
-            s <- newInflightState (gp 0)
+            s <- newInflightState 100 (gp 0)
             atomically $ do
                 mapM_ (recordIngested s . gp) [1, 2, 3, 4, 5]
                 recordAckResult s (gp 1) AckComplete
@@ -53,7 +53,7 @@ tests =
             r <- atomically (advanceCheckpointTo s)
             r @?= Just (gp 2)
         , testCase "retry completes: advancement unblocks" $ do
-            s <- newInflightState (gp 0)
+            s <- newInflightState 100 (gp 0)
             atomically $ do
                 mapM_ (recordIngested s . gp) [1, 2, 3]
                 recordAckResult s (gp 1) AckComplete
@@ -65,7 +65,7 @@ tests =
             r2 <- atomically (advanceCheckpointTo s)
             r2 @?= Just (gp 3)
         , testCase "out-of-order complete with unknown preceding positions does not advance" $ do
-            s <- newInflightState (gp 0)
+            s <- newInflightState 100 (gp 0)
             atomically $ do
                 recordIngested s (gp 3)
                 recordAckResult s (gp 3) AckComplete

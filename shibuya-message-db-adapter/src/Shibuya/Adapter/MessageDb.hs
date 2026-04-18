@@ -40,6 +40,8 @@ module Shibuya.Adapter.MessageDb (
     PollInterval (..),
     DrainTimeout (..),
     CheckpointInterval (..),
+    DlqStrategy (..),
+    MaxRetryBufferSize (..),
     SubscriptionName,
     defaultConfig,
 )
@@ -57,6 +59,8 @@ import Data.Time.Clock (
  )
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, forkIO, threadDelay)
+import Effectful.Error.Static (Error)
+import Effectful.Hasql (SessionError)
 import MessageDb.CheckpointStore.Effectful (CheckpointStore, getLastCheckpoint, storeCheckpoint)
 import MessageDb.Effectful (MessageDb)
 import MessageDb.Message qualified as Mdb
@@ -65,7 +69,9 @@ import Shibuya.Adapter.MessageDb.Config (
     BatchSize (..),
     CategoryStream (..),
     CheckpointInterval (..),
+    DlqStrategy (..),
     DrainTimeout (..),
+    MaxRetryBufferSize (..),
     MessageDbAdapterConfig (..),
     PollInterval (..),
     SubscriptionName,
@@ -75,6 +81,7 @@ import Shibuya.Adapter.MessageDb.Internal (
     messageDbSource,
     nominalToMicros,
     parseCategoryStream,
+    retryFiber,
     runCheckpointPersister,
  )
 import Shibuya.Adapter.MessageDb.Internal.InflightState (
@@ -100,7 +107,12 @@ stops both the source stream and the persister), waits up to
 one extra @checkpointInterval@ to notice the signal before returning.
 -}
 messageDbAdapter ::
-    (MessageDb :> es, CheckpointStore :> es, Concurrent :> es, IOE :> es) =>
+    ( MessageDb :> es
+    , CheckpointStore :> es
+    , Concurrent :> es
+    , IOE :> es
+    , Error SessionError :> es
+    ) =>
     MessageDbAdapterConfig ->
     Eff es (Adapter es Mdb.Message)
 messageDbAdapter config = do
@@ -108,10 +120,11 @@ messageDbAdapter config = do
     let stored = fromMaybe (Mdb.GlobalPosition 0) mStored
         Mdb.GlobalPosition storedN = stored
         startAt = Mdb.GlobalPosition (storedN + 1)
+        MaxRetryBufferSize maxRetry = config.maxRetryBufferSize
     shutdownSignal <- liftIO (newTVarIO False)
     positionRef <- liftIO (newIORef startAt)
     ackedRef <- liftIO (newIORef stored)
-    inflight <- liftIO (newInflightState stored)
+    inflight <- liftIO (newInflightState maxRetry stored)
     let parsedCat = parseCategoryStream config.category
         CategoryStream catText = config.category
         CheckpointInterval ci = config.checkpointInterval
@@ -124,6 +137,9 @@ messageDbAdapter config = do
                 config.subscriptionName
                 parsedCat
                 ci
+    _ <-
+        forkIO $
+            retryFiber shutdownSignal inflight
     pure
         Adapter
             { adapterName = "message-db:" <> catText

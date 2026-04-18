@@ -41,6 +41,7 @@ library
     Shibuya.Adapter.MessageDb.Config
     Shibuya.Adapter.MessageDb.Convert
     Shibuya.Adapter.MessageDb.Internal
+    Shibuya.Adapter.MessageDb.Internal.Dlq
     Shibuya.Adapter.MessageDb.Internal.InflightState
 
   default-extensions:
@@ -61,6 +62,8 @@ library
     , containers                   ^>=0.7
     , effectful                    ^>=2.6.1.0
     , effectful-core               ^>=2.6.1.0
+    , hasql                        ^>=1.10
+    , hasql-effectful              ^>=0.1
     , message-db-checkpoint-store  ^>=0.1
     , message-db-effectful         ^>=0.1
     , message-db-hs                ^>=0.1

@@ -65,79 +65,72 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 1: Retry buffer and re-emission
 
-- [ ] Extend `Shibuya.Adapter.MessageDb.Internal.InflightState` (from EP-2) to carry a
+- [x] Extend `Shibuya.Adapter.MessageDb.Internal.InflightState` (from EP-2) to carry a
       `TQueue RetryEntry` where `RetryEntry` records `(GlobalPosition, UTCTime, MessageDb.Message)`.
-- [ ] Add a new `AckOutcome` constructor `AckRetrying` (or extend the existing one —
-      EP-2's `AckOutcome` was `AckComplete | AckRetry`; keep `AckRetry` and clarify
-      that it means "retry scheduled, do not advance past this position").
-- [ ] Implement `scheduleRetry :: InflightState -> GlobalPosition -> RetryDelay -> MessageDb.Message -> STM ()`
-      that enqueues to the retry buffer and flips the in-flight flag to `AckRetry`.
-- [ ] Implement the retry fiber: a background action, launched alongside the poll
-      fiber, that atomically peeks at the head of the retry buffer, waits until the
-      head's `notBefore` time elapses, then publishes the message to a `TChan MessageDb.Message`
-      the source stream consumes.
-- [ ] Merge retry publications with polled batches in `messageDbSource` so the user
-      handler sees retries interleaved with fresh messages (both wrapped in `Ingested`).
+- [x] Keep `AckRetry` semantic: "retry scheduled, do not advance past this position".
+- [x] Implement `scheduleRetry :: InflightState -> GlobalPosition -> NominalDiffTime -> UTCTime -> MessageDb.Message -> STM Bool`
+      that enqueues to the retry buffer and flips the in-flight flag to `AckRetry`. Returns `False` on full-buffer.
+- [x] Implement the retry fiber: a background action, launched alongside the poll
+      fiber, that blocks on STM until the retry-buffer head or the shutdown signal
+      fires, then waits until the head's `notBefore` elapses and atomically pops onto
+      a `TChan MessageDb.Message` the source stream drains.
+- [x] Merge retry publications with polled batches in `messageDbSource`: each
+      `pollBatch` begins with a `drainRetryChannel` of ready retries and concatenates
+      them in front of the freshly-polled batch.
 - [ ] Verify by running the demo with a handler that retries once per message and
-      observe correct re-emission.
+      observe correct re-emission. (Deferred to demo flag work in M6.)
 
 ### Milestone 2: AckDeadLetter with DlqSkipAndLog
 
-- [ ] Introduce `data DlqStrategy` with constructors `DlqSkipAndLog` and
+- [x] Introduce `data DlqStrategy` with constructors `DlqSkipAndLog` and
       `DlqWriteToStream !MessageDb.Message.Stream` in
       `Shibuya.Adapter.MessageDb.Config`.
-- [ ] In `Shibuya.Adapter.MessageDb.Internal.mkAckHandle` (the non-stub ack handle from
-      EP-2), add a case for `AckDeadLetter reason`: when `dlqStrategy` is
-      `DlqSkipAndLog`, log the reason at warning level and call
+- [x] In `Shibuya.Adapter.MessageDb.Internal.mkAckHandle` add a case for
+      `AckDeadLetter reason`: when `dlqStrategy` is `DlqSkipAndLog`, log the reason
+      to stderr at warning-flavored prefix and call
       `recordAckResult inflight pos AckComplete`.
-- [ ] Confirm compilation and that the existing checkpoint advancement tests from EP-2
-      still pass.
+- [x] Confirm compilation and that the existing checkpoint advancement tests from
+      EP-2 still pass (12/12 green).
 
 ### Milestone 3: AckDeadLetter with DlqWriteToStream
 
-- [ ] When `dlqStrategy` is `DlqWriteToStream targetStream`, call
+- [x] When `dlqStrategy` is `DlqWriteToStream targetStream`, call
       `MessageDb.Effectful.writeStreamMessage` with a `NewMessage` whose fields are:
-      `messageId` derived from the original message's id via UUIDv5 with the namespace
-      UUID of `"shibuya-message-db-adapter/dlq"` and the name being the original UUID's
-      bytes concatenated with `"-dlq"`; `stream = targetStream`; `messageType = "$DeadLetter"`;
-      `messageData = Aeson.toJSON (original messageData)`; `messageMetadata` is a new
-      object with keys `correlation`, `causation`, `deadLetterReason`,
-      `deadLetteredAt`, and `originalStream`; `expectedPosition = Nothing` (we do not
-      enforce ordering on the DLQ stream).
-- [ ] The idempotent messageId means re-writing the same DLQ entry returns a
-      `WrongExpectedVersion`-free path because message-db's `write_message` is
-      idempotent on `(stream_name, message_id)` pairs: the DB will reject the duplicate
-      with a unique-violation and we must catch that and treat as success.
-- [ ] After the DLQ write (or a recognized idempotent-duplicate failure), call
+      `messageId` derived from the original message's id via UUIDv5 with
+      `Shibuya.Adapter.MessageDb.Internal.Dlq.dlqNamespace` and the name being the
+      original UUID's bytes concatenated with `"-dlq"`; `stream = targetStream`;
+      `messageType = "$DeadLetter"`; `messageData` preserved verbatim; metadata
+      rebuilt with `correlation`, `causation`, `originalStream`,
+      `deadLetterReason`, `deadLetteredAt`; `expectedPosition = Nothing`.
+- [x] Idempotent messageId means a retried DLQ write hits message-db's 23505
+      unique-violation on `messages.id`. `tryWriteDlq` catches the `SessionError`,
+      inspects the SQLSTATE, and reports `DuplicateDlqEntry`. Other SessionErrors
+      become `OtherDlqError` and are logged but do not block the ack.
+- [x] After the DLQ write (or a recognized duplicate), call
       `recordAckResult inflight pos AckComplete` so the checkpoint can advance.
-- [ ] Add a unit test that constructs two `AckDeadLetter` calls for the same position
-      and verifies only one DLQ message ends up in the target stream.
+- [ ] Add a unit test for deterministic dlqMessageId (unit-side proxy for the
+      idempotency property); two-call DB-side idempotency verified in the M6
+      integration test.
 
 ### Milestone 4: AckHalt wiring
 
-- [ ] Reuse the shutdown `TVar Bool` plumbed through EP-1 and EP-2. In the ack handle,
-      on `AckHalt reason`: log the `HaltReason` at error level, write `True` to the
-      shutdown TVar, and **do not** call `recordAckResult` at all for this position.
-- [ ] Because `recordAckResult` is never invoked for the halted position,
-      `advanceCheckpointTo` (from EP-2) will not cross it: the contiguous prefix
-      terminates at `halted_pos - 1`.
-- [ ] Verify by a unit test: given three messages 10, 11, 12 with 10=AckOk and
-      11=AckHalt (12 never delivered), `advanceCheckpointTo` returns `Just 10`.
-- [ ] Verify by an integration test: after halt, the adapter's stream terminates and a
-      fresh `messageDbAdapter` over the same subscription name resumes at position 10,
-      re-delivering 11 and onward.
+- [x] In the ack handle, on `AckHalt reason`: log to stderr, write `True` to the
+      shutdown TVar, and **do not** call `recordAckResult`.
+- [x] Because `recordAckResult` is never invoked for the halted position,
+      `advanceCheckpointTo` will not cross it: the contiguous prefix terminates at
+      `halted_pos - 1`.
+- [ ] Verify by a unit test in M6 (halt semantics in `InflightState`).
+- [ ] Verify by an integration test in M6 (fresh adapter resumes at halted pos).
 
 ### Milestone 5: Config extensions and defaults
 
-- [ ] Add `dlqStrategy :: DlqStrategy` (default `DlqSkipAndLog`) to
+- [x] Add `dlqStrategy :: DlqStrategy` (default `DlqSkipAndLog`) to
       `MessageDbAdapterConfig`.
-- [ ] Add `maxRetryBufferSize :: Int` (default `1000`) to `MessageDbAdapterConfig`.
-- [ ] Update `defaultConfig` to set both new fields. Defaults must keep the EP-1 and
-      EP-2 call sites compiling (additive change; no field renamed or removed).
-- [ ] Verify that when `scheduleRetry` would push onto a full retry buffer, the
-      enqueue is dropped and the ack handle instead takes the `AckDeadLetter
-      MaxRetriesExceeded` code path (with `MaxRetriesExceeded` being the
-      `DeadLetterReason` constructor from `Shibuya.Core.Ack`).
+- [x] Add `maxRetryBufferSize :: MaxRetryBufferSize` (default
+      `MaxRetryBufferSize 1000`) to `MessageDbAdapterConfig`.
+- [x] Update `defaultConfig` to set both new fields. EP-1 and EP-2 call sites
+      compile without modification (additive change).
+- [ ] Verify buffer-overflow downgrade path in an M6 unit test.
 
 ### Milestone 6: Tests
 
@@ -166,7 +159,33 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- `DeadLetterReason` constructors in `shibuya-core` are `PoisonPill !Text`,
+  `InvalidPayload !Text`, and `MaxRetriesExceeded` (at
+  `shibuya-core/src/Shibuya/Core/Ack.hs`). The plan had referenced the
+  hypothetical constructors `Unprocessable`, `ValidationFailed`, and
+  `CustomReason`. `MaxRetriesExceeded` exists as specified, so the
+  "retry-buffer overflow downgrades to DLQ" decision stands; other code paths
+  use the real constructors. Integration-test scenarios that originally read
+  `AckDeadLetter Unprocessable` use `AckDeadLetter (PoisonPill "unprocessable")`
+  instead.
+- `HaltReason` constructors are `HaltOrderedStream !Text` and `HaltFatal !Text`
+  (same file). The plan's illustrative `ManualStop` does not exist; tests use
+  `HaltFatal "manual stop"`.
+- `MessageDbAdapterConfig` (as of EP-2) already takes `subscriptionName` and
+  `checkpointInterval` via its own newtypes; the EP-3 config extension just
+  appends two more fields and does not need to reintroduce EP-2's.
+- message-db's `write_message` SQL function uses a unique constraint on the
+  raw `messages.id` column (not a `(stream_name, message_id)` composite). A
+  duplicate DLQ write surfaces as a hasql `SessionError` with SQLSTATE 23505,
+  *not* as `WrongExpectedVersion`. `tryWriteDlq` therefore catches
+  `Error SessionError` and inspects the SQLSTATE; it still also uses
+  `runErrorNoCallStack @WrongExpectedVersion` to keep WEV scoped locally.
+- `AckHandle` now depends on more than `(IOE :> es)`: since
+  `AckDeadLetter` must be able to run `writeStreamMessage`, `mkAckHandle`
+  (and therefore `mkIngested` and `messageDbSource`) carries
+  `MessageDb :> es` and `Error SessionError :> es`. The existing Demo and
+  integration test call sites already run under both of those effects, so no
+  caller changes are needed beyond the extended signatures.
 
 
 ## Decision Log
