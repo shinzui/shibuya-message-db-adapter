@@ -1,0 +1,104 @@
+cabal-version: 3.12
+name:          shibuya-message-db-adapter
+version:       0.1.0.0
+synopsis:
+  message-db adapter for the Shibuya queue processing framework
+
+description:
+  A Shibuya adapter that polls message-db (a Postgres-based event store) via
+  message-db-effectful and emits envelopes suitable for consumption by
+  Shibuya handlers. Scope: polling, pure conversion from MessageDb.Message to
+  Shibuya.Envelope, and stub ack handling. Durable checkpointing, retry, DLQ,
+  and partitioning are separate, future concerns.
+
+author:        Nadeem Bitar
+copyright:     2026 Nadeem Bitar
+maintainer:    nadeem@gmail.com
+homepage:      https://github.com/shinzui/shibuya-message-db-adapter
+bug-reports:
+  https://github.com/shinzui/shibuya-message-db-adapter/issues
+
+license:       MIT
+build-type:    Simple
+tested-with:   GHC ==9.12.2
+category:      Concurrency, Streaming, EventSourcing
+
+source-repository head
+  type:     git
+  location: https://github.com/shinzui/shibuya-message-db-adapter.git
+
+common warnings
+  ghc-options:
+    -Wall -Wcompat -Widentities -Wincomplete-uni-patterns
+    -Wincomplete-record-updates -Wredundant-constraints
+    -fhide-source-paths -Wmissing-export-lists -Wpartial-fields
+    -Wmissing-deriving-strategies
+
+library
+  import:             warnings
+  exposed-modules:
+    Shibuya.Adapter.MessageDb
+    Shibuya.Adapter.MessageDb.Config
+    Shibuya.Adapter.MessageDb.Convert
+    Shibuya.Adapter.MessageDb.Internal
+
+  default-extensions:
+    DeriveAnyClass
+    DerivingStrategies
+    DuplicateRecordFields
+    LambdaCase
+    NoFieldSelectors
+    OverloadedLabels
+    OverloadedRecordDot
+    OverloadedStrings
+    QuasiQuotes
+
+  build-depends:
+    , aeson                 ^>=2.2
+    , base                  ^>=4.21.0.0
+    , bytestring            ^>=0.12
+    , effectful             ^>=2.6.1.0
+    , effectful-core        ^>=2.6.1.0
+    , message-db-effectful  ^>=0.1
+    , message-db-hs         ^>=0.1
+    , shibuya-core          ^>=0.1.0.0
+    , stm                   ^>=2.5
+    , streamly              ^>=0.11
+    , streamly-core         ^>=0.3
+    , text                  ^>=2.1
+    , time                  ^>=1.14
+    , uuid                  ^>=1.3
+
+  hs-source-dirs:     src
+  default-language:   GHC2024
+
+test-suite shibuya-message-db-adapter-test
+  import:             warnings
+  type:               exitcode-stdio-1.0
+  default-language:   GHC2024
+  hs-source-dirs:     test
+  main-is:            Main.hs
+  ghc-options:        -threaded -rtsopts -with-rtsopts=-N
+  default-extensions:
+    DeriveAnyClass
+    DerivingStrategies
+    DuplicateRecordFields
+    LambdaCase
+    NoFieldSelectors
+    OverloadedLabels
+    OverloadedRecordDot
+    OverloadedStrings
+
+  other-modules:      Shibuya.Adapter.MessageDb.ConvertTest
+  build-depends:
+    , aeson
+    , base
+    , bytestring
+    , message-db-hs
+    , shibuya-core
+    , shibuya-message-db-adapter
+    , tasty                       ^>=1.5
+    , tasty-hunit                 ^>=0.10
+    , text
+    , time
+    , uuid

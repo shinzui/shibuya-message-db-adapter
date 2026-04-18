@@ -2,3 +2,14 @@
 .pre-commit-config.yaml
 .claude/
 CLAUDE.local.md
+
+# Haskell build artifacts
+dist-newstyle/
+dist/
+.ghc.environment.*
+
+# Postgres cluster files (direnv-managed, not source)
+db/
+
+# process-compose runtime state
+.dev/
