@@ -65,18 +65,18 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 2: Wire checkpoint-store into the adapter
 
-- [ ] Extend `shibuya-message-db-adapter/shibuya-message-db-adapter.cabal` with a
-      `build-depends` entry for `message-db-checkpoint-store` and add that package
-      as a `source-repository-package` entry in `cabal.project`.
-- [ ] Extend `Shibuya.Adapter.MessageDb.Config.MessageDbAdapterConfig` with the new
-      fields `subscriptionName :: SubscriptionName` and
-      `checkpointInterval :: NominalDiffTime`. Update `defaultConfig` to take a
-      `SubscriptionName` as its second argument (after `CategoryStream`).
-- [ ] Re-export `SubscriptionName` from `Shibuya.Adapter.MessageDb.Config`.
-- [ ] Update `messageDbAdapter` in `Shibuya.Adapter.MessageDb` so that on start it
-      calls `getLastCheckpoint subscriptionName` and seeds the position `IORef` to
-      the returned value (defaulting to `GlobalPosition 0` when `Nothing`).
-- [ ] Confirm `cabal build shibuya-message-db-adapter` succeeds.
+- [x] Add `message-db-checkpoint-store` to the library `build-depends` and to
+      `cabal.project`'s local `packages:` list (the repo uses local paths, not
+      `source-repository-package`). (2026-04-18)
+- [x] Extend `MessageDbAdapterConfig` with `subscriptionName` and
+      `checkpointInterval` (a new `CheckpointInterval` newtype over
+      `NominalDiffTime` with default 1 s). (2026-04-18)
+- [x] Re-export `SubscriptionName` and `CheckpointInterval` from the Config
+      module. (2026-04-18)
+- [x] `messageDbAdapter` now requires `CheckpointStore :> es`, calls
+      `getLastCheckpoint`, and seeds `positionRef = stored + 1` (positions are
+      1-indexed) and `ackedRef = stored`. (2026-04-18)
+- [x] `cabal build shibuya-message-db-adapter` succeeds (lib + demo + test). (2026-04-18)
 
 ### Milestone 3: Background persistence thread
 

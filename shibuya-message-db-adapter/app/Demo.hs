@@ -24,6 +24,7 @@ import Hasql.Connection.Settings qualified as ConnSettings
 import Hasql.Pool (UsageError)
 import Hasql.Pool qualified as Pool
 import Hasql.Pool.Config qualified as PoolConfig
+import MessageDb.CheckpointStore.Effectful (runPostgresCheckointStore)
 import MessageDb.Effectful (runMessageDb)
 import MessageDb.Message qualified as Mdb
 import MessageDb.Message.Stream qualified as Stream
@@ -47,6 +48,7 @@ import System.IO (BufferMode (LineBuffering), hSetBuffering, stdout)
 
 data Args = Args
     { category :: !Text
+    , subscription :: !Text
     , limit :: !(Maybe Int)
     }
 
@@ -57,6 +59,13 @@ argsParser =
             ( Opt.long "category"
                 <> Opt.metavar "CATEGORY"
                 <> Opt.help "message-db category to poll (e.g. orders)"
+            )
+        <*> Opt.strOption
+            ( Opt.long "subscription"
+                <> Opt.metavar "NAME"
+                <> Opt.value "shibuya-demo"
+                <> Opt.showDefault
+                <> Opt.help "subscription name for the durable checkpoint row"
             )
         <*> Opt.optional
             ( Opt.option
@@ -158,10 +167,11 @@ runDemo pool tracer args = do
             . runHasqlWithPool pool
             . MsgDbTrace.runTrace tracer
             . runMessageDb
+            . runPostgresCheckointStore
             $ do
                 adapter <-
                     messageDbAdapter
-                        (defaultConfig (CategoryStream args.category))
+                        (defaultConfig (CategoryStream args.category) args.subscription)
                 drain args adapter
     case outer of
         Left ue -> Text.IO.putStrLn ("pool usage error: " <> Text.pack (show ue))

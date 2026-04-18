@@ -7,6 +7,7 @@ packages:
   /Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya/shibuya-core
   /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-hs
   /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-effectful
+  /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-checkpoint-store
   /Users/shinzui/Keikaku/work/libraries/haskell/tan-effectful/hasql-effectful
   /Users/shinzui/Keikaku/work/libraries/haskell/tan-event-source
   /Users/shinzui/Keikaku/work/libraries/haskell/tan-commons/tan-commons-config
@@ -72,6 +73,8 @@ allow-newer:
   proto-lens-protobuf-types:ghc-prim,
   message-db-effectful:containers,
   message-db-hs:containers,
+  message-db-checkpoint-store:containers,
+  message-db-checkpoint-store:text,
   tan-event-source:containers,
   tan-event-source:generic-lens,
   tan-commons-config:containers,
