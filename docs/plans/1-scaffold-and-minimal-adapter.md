@@ -59,12 +59,14 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 2: mori.dhall and Justfile
 
-- [ ] Write `mori.dhall` at the repo root registering the project with mori under the
-      name `shinzui/shibuya-message-db-adapter`.
-- [ ] Write a `Justfile` at the repo root with recipes `process-up`, `process-down`,
-      `create-database`, `build`, `test`, `fmt`.
-- [ ] Run `mori register` (interactive) and confirm `mori registry show shinzui/shibuya-message-db-adapter --full`
-      returns the project.
+- [x] Write `mori.dhall` at the repo root registering the project with mori under the
+      name `shinzui/shibuya-message-db-adapter`. (2026-04-18)
+- [x] Write a `Justfile` at the repo root with recipes `process-up`, `process-down`,
+      `psql`, `create-database`, `drop-database`, `bootstrap-message-db`,
+      `seed-messages`, `build`, `test`, `clean`, `fmt`. (2026-04-18)
+- [x] Run `mori register` and confirm
+      `mori registry show shinzui/shibuya-message-db-adapter --full` returns the project.
+      (2026-04-18)
 
 ### Milestone 3: Flake updates and dev loop
 
