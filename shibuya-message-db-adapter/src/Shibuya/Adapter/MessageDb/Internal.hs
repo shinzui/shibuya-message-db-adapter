@@ -5,14 +5,17 @@ The public surface lives in "Shibuya.Adapter.MessageDb".
 -}
 module Shibuya.Adapter.MessageDb.Internal (
     messageDbSource,
-    mkStubAckHandle,
+    mkAckHandle,
     mkIngested,
     mkGetCategoryQuery,
     parseCategoryStream,
+    runCheckpointPersister,
+    nominalToMicros,
 )
 where
 
-import Control.Concurrent.STM (TVar, readTVarIO)
+import Control.Concurrent.STM (TVar, atomically, readTVarIO)
+import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Data.Function ((&))
 import Data.IORef (IORef, atomicModifyIORef', readIORef)
@@ -22,6 +25,7 @@ import Data.Vector (Vector)
 import Data.Vector qualified as Vector
 import Effectful (Eff, IOE, (:>))
 import Effectful.Concurrent (Concurrent, threadDelay)
+import MessageDb.CheckpointStore.Effectful (CheckpointStore, SubscriptionName, storeCheckpoint)
 import MessageDb.Db.Statements (GetCategoryMessagesQuery (..))
 import MessageDb.Db.Statements.BatchSize qualified as MdbBatch
 import MessageDb.Effectful (MessageDb, getCategoryMessages)
@@ -34,6 +38,14 @@ import Shibuya.Adapter.MessageDb.Config (
     PollInterval (..),
  )
 import Shibuya.Adapter.MessageDb.Convert (messageToEnvelope)
+import Shibuya.Adapter.MessageDb.Internal.InflightState (
+    AckOutcome,
+    InflightState,
+    advanceCheckpointTo,
+    recordAckResult,
+    recordIngested,
+ )
+import Shibuya.Adapter.MessageDb.Internal.InflightState qualified as Inflight
 import Shibuya.Core.Ack (AckDecision (..))
 import Shibuya.Core.AckHandle (AckHandle (..))
 import Shibuya.Core.Ingested (Ingested (..))
@@ -80,29 +92,42 @@ mkGetCategoryQuery config startAt =
             , condition = Nothing
             }
 
-{- | Create a stub 'AckHandle' for an ingested message.
+{- | Create an 'AckHandle' backed by the inflight ledger.
 
-On 'AckOk', advance the @ackedRef@ high-watermark to this message's
-'GlobalPosition' (monotonically — never decrease). All other decisions
-are currently no-ops: retry, dead-letter, and halt are EP-3's concerns.
-Durable persistence of the high-watermark is EP-2's.
+The 'AckDecision' is mapped to an 'AckOutcome' and recorded in
+@inflight@. The background persister reads the ledger on a timer and
+flushes the contiguous prefix of completions to the checkpoint store.
+
+Mapping:
+
+* 'AckOk' → 'AckComplete'
+* 'AckDeadLetter' → 'AckComplete' (EP-3 replaces the log-only behavior
+  with a configurable DLQ strategy; for now, skip-and-advance so a
+  poison message does not stall the whole subscription)
+* 'AckRetry' → 'AckRetry' (pins the contiguous prefix)
+* 'AckHalt' → 'AckRetry' (the halting message never completes; M4
+  extends this branch to also flip the shutdown signal)
 -}
-mkStubAckHandle ::
+mkAckHandle ::
     (IOE :> es) =>
-    IORef Mdb.GlobalPosition ->
-    Mdb.Message ->
+    InflightState ->
+    Mdb.GlobalPosition ->
     AckHandle es
-mkStubAckHandle ackedRef msg =
-    AckHandle $ \case
-        AckOk ->
-            liftIO $
-                atomicModifyIORef' ackedRef $ \current ->
-                    (max current msg.globalPosition, ())
-        AckRetry _ -> pure ()
-        AckDeadLetter _ -> pure ()
-        AckHalt _ -> pure ()
+mkAckHandle inflight pos =
+    AckHandle $ \decision ->
+        liftIO $ atomically $ recordAckResult inflight pos (outcomeOf decision)
+  where
+    outcomeOf :: AckDecision -> AckOutcome
+    outcomeOf = \case
+        AckOk -> Inflight.AckComplete
+        AckDeadLetter _ -> Inflight.AckComplete
+        AckRetry _ -> Inflight.AckRetry
+        AckHalt _ -> Inflight.AckRetry
 
-{- | Pair a message with its envelope and stub ack handle.
+{- | Pair a message with its envelope and an inflight-ledger-backed ack handle.
+
+Records the ingestion in the ledger under an STM transaction so the
+persister sees the new entry atomically with subsequent acks.
 
 Lease is @Nothing@: message-db has no visibility-timeout model; the
 entire queue is a durable log and checkpoints are the re-read
@@ -110,15 +135,17 @@ mechanism.
 -}
 mkIngested ::
     (IOE :> es) =>
-    IORef Mdb.GlobalPosition ->
+    InflightState ->
     Mdb.Message ->
-    Ingested es Mdb.Message
-mkIngested ackedRef msg =
-    Ingested
-        { envelope = messageToEnvelope msg
-        , ack = mkStubAckHandle ackedRef msg
-        , lease = Nothing
-        }
+    Eff es (Ingested es Mdb.Message)
+mkIngested inflight msg = do
+    liftIO $ atomically $ recordIngested inflight msg.globalPosition
+    pure
+        Ingested
+            { envelope = messageToEnvelope msg
+            , ack = mkAckHandle inflight msg.globalPosition
+            , lease = Nothing
+            }
 
 {- | The message-db polling source.
 
@@ -130,16 +157,13 @@ Runs in a loop:
 4. Otherwise, advance @positionRef@ past the last message in the batch
    and flatten the batch into individual 'Ingested' values.
 
+Each emitted message is recorded in the inflight ledger via
+'mkIngested'; its 'AckHandle' writes the outcome back under STM so the
+persister can flush the advancing contiguous prefix. @ackedRef@
+remains a process-local high-watermark for diagnostic use only.
+
 The outer stream is gated by @shutdownSignal@: once it flips to
 @True@, 'takeWhileM' stops consuming and the stream terminates cleanly.
-
-Advancing @positionRef@ in the poll loop — independently of ack
-outcomes — is the *stub* EP-1 behavior. EP-2 will make the next fetch
-position derive from the persisted high-watermark in @ackedRef@ so
-that crashes do not lose messages. EP-1 already updates @ackedRef@ on
-@AckOk@ via 'mkStubAckHandle', so the information required for durable
-checkpointing is being recorded even though it is not yet consulted on
-restart.
 -}
 messageDbSource ::
     forall es.
@@ -147,15 +171,23 @@ messageDbSource ::
     TVar Bool ->
     IORef Mdb.GlobalPosition ->
     IORef Mdb.GlobalPosition ->
+    InflightState ->
     MessageDbAdapterConfig ->
     Stream (Eff es) (Ingested es Mdb.Message)
-messageDbSource shutdownSignal positionRef ackedRef config =
+messageDbSource shutdownSignal positionRef ackedRef inflight config =
     Stream.repeatM pollBatch
         & Stream.filter (not . Vector.null)
         & Stream.unfoldEach (Unfold.unfoldr Vector.uncons)
-        & Stream.mapM (pure . mkIngested ackedRef)
+        & Stream.mapM recordAndWrap
         & takeUntilShutdown shutdownSignal
   where
+    recordAndWrap :: Mdb.Message -> Eff es (Ingested es Mdb.Message)
+    recordAndWrap msg = do
+        liftIO $
+            atomicModifyIORef' ackedRef $ \current ->
+                (max current msg.globalPosition, ())
+        mkIngested inflight msg
+
     pollBatch :: Eff es (Vector Mdb.Message)
     pollBatch = do
         startAt <- liftIO (readIORef positionRef)
@@ -187,5 +219,40 @@ takeUntilShutdown signal =
         stopped <- liftIO (readTVarIO signal)
         pure (not stopped)
 
+{- | Convert a 'NominalDiffTime' to microseconds as an 'Int' suitable
+for 'threadDelay'.
+-}
 nominalToMicros :: NominalDiffTime -> Int
-nominalToMicros t = floor (nominalDiffTimeToSeconds t * 1_000_000)
+nominalToMicros t = ceiling (nominalDiffTimeToSeconds t * 1_000_000)
+
+{- | Background thread that flushes the contiguous-prefix checkpoint to
+the durable store at a fixed interval.
+
+Wakes every @interval@; if 'advanceCheckpointTo' returned a new
+position, calls 'storeCheckpoint' under the current effect stack. The
+loop terminates when @shutdownSignal@ flips to @True@; the final flush
+is the caller's responsibility (see 'Shibuya.Adapter.MessageDb.messageDbAdapter'
+@shutdown@ field in M4).
+-}
+runCheckpointPersister ::
+    ( CheckpointStore :> es
+    , Concurrent :> es
+    , IOE :> es
+    ) =>
+    InflightState ->
+    TVar Bool ->
+    SubscriptionName ->
+    CategoryStream.CategoryStream ->
+    NominalDiffTime ->
+    Eff es ()
+runCheckpointPersister inflight shutdownSignal subName cat interval = loop
+  where
+    loop = do
+        stopped <- liftIO (readTVarIO shutdownSignal)
+        unless stopped $ do
+            mNew <- liftIO (atomically (advanceCheckpointTo inflight))
+            case mNew of
+                Just pos -> storeCheckpoint subName cat pos
+                Nothing -> pure ()
+            threadDelay (nominalToMicros interval)
+            loop

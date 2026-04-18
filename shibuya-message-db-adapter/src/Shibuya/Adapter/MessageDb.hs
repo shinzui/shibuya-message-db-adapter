@@ -12,9 +12,8 @@ EP-2 adds durable checkpoints via the @message-db-checkpoint-store@
 package and contiguous-prefix ack accounting via
 'Shibuya.Adapter.MessageDb.Internal.InflightState'. On start the
 adapter seeds its fetch position from the persisted checkpoint; a
-background thread flushes the advancing prefix to the store; and
-graceful shutdown waits for in-flight work to drain before one last
-flush.
+background thread flushes the advancing prefix to the store; and M4
+wires graceful shutdown on top.
 
 == Example usage
 
@@ -50,7 +49,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.IORef (newIORef)
 import Data.Maybe (fromMaybe)
 import Effectful (Eff, IOE, (:>))
-import Effectful.Concurrent (Concurrent)
+import Effectful.Concurrent (Concurrent, forkIO)
 import MessageDb.CheckpointStore.Effectful (CheckpointStore, getLastCheckpoint)
 import MessageDb.Effectful (MessageDb)
 import MessageDb.Message qualified as Mdb
@@ -65,17 +64,26 @@ import Shibuya.Adapter.MessageDb.Config (
     SubscriptionName,
     defaultConfig,
  )
-import Shibuya.Adapter.MessageDb.Internal (messageDbSource)
+import Shibuya.Adapter.MessageDb.Internal (
+    messageDbSource,
+    parseCategoryStream,
+    runCheckpointPersister,
+ )
+import Shibuya.Adapter.MessageDb.Internal.InflightState (newInflightState)
 
 {- | Build a message-db adapter for a single category stream.
 
-Loads the persisted checkpoint for 'subscriptionName' and seeds the
-adapter's fetch position at @checkpoint + 1@ (or @1@ when no checkpoint
-exists — message-db positions are 1-indexed). EP-3 will wire the
-background persister and graceful-shutdown flush on top of this
-scaffold; for now the adapter still behaves like EP-1 between start
-and shutdown, except that restart-after-crash resumes from the last
-durable point instead of replaying the whole category.
+On start, loads the persisted checkpoint for @subscriptionName@ and
+seeds the adapter's fetch position at @checkpoint + 1@ (message-db
+positions are 1-indexed and @get_category_messages@ filters
+@global_position >= $2@). A background thread flushes the advancing
+contiguous prefix of completed acks to the store every
+@checkpointInterval@.
+
+M4 replaces the trivial shutdown (just flipping the signal) with a
+drain-then-final-flush so the last tick of work is durable; for now,
+shutdown just stops new work and leaves the persister to flush on its
+next tick.
 -}
 messageDbAdapter ::
     (MessageDb :> es, CheckpointStore :> es, Concurrent :> es, IOE :> es) =>
@@ -89,12 +97,23 @@ messageDbAdapter config = do
     shutdownSignal <- liftIO (newTVarIO False)
     positionRef <- liftIO (newIORef startAt)
     ackedRef <- liftIO (newIORef stored)
-    let CategoryStream catText = config.category
+    inflight <- liftIO (newInflightState stored)
+    let parsedCat = parseCategoryStream config.category
+        CategoryStream catText = config.category
+        CheckpointInterval ci = config.checkpointInterval
+    _ <-
+        forkIO $
+            runCheckpointPersister
+                inflight
+                shutdownSignal
+                config.subscriptionName
+                parsedCat
+                ci
     pure
         Adapter
             { adapterName = "message-db:" <> catText
             , source =
-                messageDbSource shutdownSignal positionRef ackedRef config
+                messageDbSource shutdownSignal positionRef ackedRef inflight config
             , shutdown =
                 liftIO (atomically (writeTVar shutdownSignal True))
             }

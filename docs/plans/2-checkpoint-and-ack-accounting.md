@@ -80,19 +80,20 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 3: Background persistence thread
 
-- [ ] Implement the background thread described in *Plan of Work* in
-      `Shibuya.Adapter.MessageDb.Internal` — it wakes every `checkpointInterval`,
-      calls `advanceCheckpointTo`, and if the position changed, calls
-      `storeCheckpoint subscriptionName category newPos`.
-- [ ] Spawn the thread from `messageDbAdapter` using `Effectful.Concurrent.forkIO`
-      and store its `ThreadId` in the `Adapter`'s closure so `shutdown` can join it.
-- [ ] Replace the stub `AckHandle` with one that calls
-      `recordAckResult inflightState pos outcome` where `outcome` is derived from
-      the `AckDecision` per the mapping in *Plan of Work*. Ensure every `recordIngested`
-      call in the source stream is paired with exactly one `recordAckResult` call
-      per finalize.
-- [ ] Confirm `cabal build shibuya-message-db-adapter` succeeds and the demo from
-      EP-1 still runs end-to-end against a local message-db.
+- [x] Added `runCheckpointPersister` in `Shibuya.Adapter.MessageDb.Internal`:
+      wakes every `checkpointInterval`, calls `advanceCheckpointTo`, and on
+      `Just pos` calls `storeCheckpoint subName cat pos`. (2026-04-18)
+- [x] `messageDbAdapter` spawns the persister via
+      `Effectful.Concurrent.forkIO`. The `ThreadId` is discarded — M4 uses the
+      `shutdownSignal` to stop the loop rather than joining. (2026-04-18)
+- [x] Replaced `mkStubAckHandle` with `mkAckHandle` that records outcomes in
+      the inflight ledger. `messageDbSource` now `recordIngested`s each message
+      before yielding it, paired with exactly one `recordAckResult` call per
+      finalize via the ack handle. `AckHalt` maps to `AckRetry` (the halting
+      position never completes); M4 will also flip the shutdown signal. (2026-04-18)
+- [x] `cabal build shibuya-message-db-adapter` succeeds; `cabal test` all 10
+      tests still pass. End-to-end demo run deferred to M4 so the graceful
+      shutdown flush is in place. (2026-04-18)
 
 ### Milestone 4: Graceful shutdown final flush
 
