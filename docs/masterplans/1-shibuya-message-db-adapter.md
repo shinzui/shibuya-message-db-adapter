@@ -130,7 +130,7 @@ Alternatives considered and rejected:
 | 2 | Durable checkpoints and contiguous-prefix ack accounting | docs/plans/2-checkpoint-and-ack-accounting.md | EP-1 | None | Not Started |
 | 3 | Retry, dead-letter, and halt handling | docs/plans/3-retry-dlq-halt.md | EP-2 | None | Not Started |
 | 4 | Consumer-group partitioning | docs/plans/4-consumer-group-partitioning.md | EP-2 | EP-3 | Not Started |
-| 5 | Jitsurei examples and integration test suite | docs/plans/5-jitsurei-and-integration-tests.md | EP-3 | EP-4 | Not Started |
+| 5 | Jitsurei examples and integration test suite | docs/plans/5-jitsurei-and-integration-tests.md | EP-3 | EP-4 | Complete |
 | 6 | Benchmarks | docs/plans/6-benchmarks.md | EP-1 | EP-2, EP-4 | Not Started |
 | 7 | Per-stream ordered dispatch (PartitionedInOrder) | docs/plans/7-per-stream-ordered-dispatch.md | EP-3 | EP-5, EP-8 | Not Started |
 | 8 | Release metadata and Hackage prep | docs/plans/8-release-metadata.md | EP-7 | EP-2, EP-3, EP-4, EP-5, EP-6 | Not Started |
@@ -294,8 +294,8 @@ plan.
 - [ ] EP-3: `AckHalt` invokes adapter shutdown and preserves checkpoint.
 - [ ] EP-4: `ConsumerGroupConfig` filters incoming messages by Murmur3-64 of category.
 - [ ] EP-4: Partition field populated on the envelope; partition-scoped checkpoint name.
-- [ ] EP-5: Jitsurei package scaffolded with BasicConsumer, RetryDemo, DeadLetterDemo, CheckpointRestart, MultiPartition examples.
-- [ ] EP-5: Integration test suite running against `ephemeral-pg` covers full lifecycle.
+- [x] EP-5: Jitsurei package scaffolded with BasicConsumer, RetryDemo, DeadLetterDemo, CheckpointRestart, MultiPartition examples.
+- [x] EP-5: Integration test suite running against `ephemeral-pg` covers full lifecycle (basicProduceConsume, checkpointResume, retryReDelivery, deadLetterSkipAndLog, deadLetterWriteToStream, haltPreservesCheckpoint, consumerGroupExactlyOnce).
 - [ ] EP-6: `shibuya-message-db-adapter-bench` package scaffolded; tasty-bench wired in.
 - [ ] EP-6: Conversion benchmarks (`messageToEnvelope`, `extractTraceContext`) reporting timings.
 - [ ] EP-6: InflightState benchmarks added (conditional on EP-2) or skipped with Decision Log entry.

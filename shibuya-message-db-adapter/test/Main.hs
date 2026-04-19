@@ -1,8 +1,10 @@
 module Main (main) where
 
+import Shibuya.Adapter.MessageDb.BasicProduceConsumeTest qualified as BasicProduceConsumeTest
 import Shibuya.Adapter.MessageDb.CheckpointResumeTest qualified as CheckpointResumeTest
 import Shibuya.Adapter.MessageDb.ConsumerGroupTest qualified as ConsumerGroupTest
 import Shibuya.Adapter.MessageDb.ConvertTest qualified as ConvertTest
+import Shibuya.Adapter.MessageDb.DeadLetterSkipAndLogTest qualified as DeadLetterSkipAndLogTest
 import Shibuya.Adapter.MessageDb.DlqTest qualified as DlqTest
 import Shibuya.Adapter.MessageDb.InflightFilterTest qualified as InflightFilterTest
 import Shibuya.Adapter.MessageDb.InflightStateTest qualified as InflightStateTest
@@ -22,7 +24,9 @@ main =
             , DlqTest.tests
             , PartitionTest.tests
             , InflightFilterTest.tests
+            , BasicProduceConsumeTest.tests
             , CheckpointResumeTest.tests
+            , DeadLetterSkipAndLogTest.tests
             , RetryDlqHaltResumeTest.tests
             , ConsumerGroupTest.tests
             ]

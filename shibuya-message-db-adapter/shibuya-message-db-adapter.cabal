@@ -133,15 +133,18 @@ test-suite shibuya-message-db-adapter-test
     OverloadedStrings
 
   other-modules:
+    Shibuya.Adapter.MessageDb.BasicProduceConsumeTest
     Shibuya.Adapter.MessageDb.CheckpointResumeTest
     Shibuya.Adapter.MessageDb.ConsumerGroupTest
     Shibuya.Adapter.MessageDb.ConvertTest
+    Shibuya.Adapter.MessageDb.DeadLetterSkipAndLogTest
     Shibuya.Adapter.MessageDb.DlqTest
     Shibuya.Adapter.MessageDb.InflightFilterTest
     Shibuya.Adapter.MessageDb.InflightStateTest
     Shibuya.Adapter.MessageDb.PartitionTest
     Shibuya.Adapter.MessageDb.RetryBufferTest
     Shibuya.Adapter.MessageDb.RetryDlqHaltResumeTest
+    TestEnv
 
   build-depends:
     , aeson
@@ -172,3 +175,4 @@ test-suite shibuya-message-db-adapter-test
     , text
     , time
     , uuid
+    , uuid-types

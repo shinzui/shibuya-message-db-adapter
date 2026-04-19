@@ -53,6 +53,10 @@
           shellHook = ''
             ${self.checks.${system}.pre-commit-check.shellHook}
             export LANG=en_US.UTF-8
+            # Integration tests read the message-db SQL scripts from this
+            # directory. Keeping the path explicit in the dev shell avoids
+            # a hard-coded fallback printing a warning on every run.
+            export MESSAGE_DB_SQL_DIR=/Users/shinzui/Keikaku/hub/event-sourcing/message-db-project/message-db/database
           ''
           + pkgs.lib.optionalString withPostgresql ''
             export PGHOST="$PWD/db"
