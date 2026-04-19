@@ -96,20 +96,25 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ### Milestone 3: CheckpointRestart example
 
-- [ ] Implement `app/CheckpointRestart.hs` running two sequential pipelines in one
+- [x] Implement `app/CheckpointRestart.hs` running two sequential pipelines in one
       process with the same subscription name; phase 1 consumes 5 and stops, phase 2
-      resumes and consumes the next 5.
-- [ ] Add executable stanza `checkpoint-restart` and verify.
+      resumes and consumes the next 5. (2026-04-18)
+- [x] Add executable stanza `checkpoint-restart` and verify. (2026-04-18; compiles.)
 
 ### Milestone 4: MultiPartition example (or stub)
 
-- [ ] If EP-4 is complete: implement `app/MultiPartition.hs` running three adapter
-      instances with `ConsumerGroupConfig { groupSize = 3, member = 0..2 }` inside one
-      `runApp` call. Seed 30 messages across 6 categories; print which member
-      processed which message; print a summary asserting exactly-once.
-- [ ] If EP-4 is not complete: write `app/MultiPartition.hs` as a stub that prints a
-      TODO explaining the missing dependency, and add a note here with the date the
-      stub was created.
+- [x] EP-4 is complete (see commit dc1a53d): implement `app/MultiPartition.hs`.
+      (2026-04-18) Deviates from the plan's original six-category design: the
+      EP-4 partition hash is computed from the *category name*, and message-db's
+      `get_category_messages` takes exactly one category per call, so the
+      faithful demo is *one* category polled by three adapter instances with
+      `ConsumerGroupConfig { groupSize = 3, member = 0..2 }`. The owner member
+      (determined by `categoryPartition groupSize category`) processes every
+      message; non-owners filter and advance. This matches the shape of the EP-4
+      integration test in `ConsumerGroupTest.hs`. Documented in Surprises &
+      Discoveries. The three adapters are launched with `Control.Concurrent.Async`
+      rather than under a single `Shibuya.App.runApp`, which would require the
+      MultiProcessor plumbing (optional M7).
 
 ### Milestone 5: Integration test harness
 
@@ -143,7 +148,30 @@ here, even if it requires splitting a partially completed task into two ("done" 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- 2026-04-18 — **MultiPartition shape.** The plan sketched a 6-category / 30-message
+  layout for the multi-partition example, but EP-4 hashes the *category name* and
+  message-db's `get_category_messages` takes exactly one category per call. Six
+  categories would require six adapters (each hashing to a single owner member),
+  which defeats the "three members cooperating" story. The faithful demo (matching
+  EP-4's own integration test) is one category polled by three members with
+  `ConsumerGroupConfig { groupSize = 3, member = 0..2 }`: the hash-owner processes
+  every message, the non-owners filter and advance. This is what `MultiPartition.hs`
+  ships.
+
+- 2026-04-18 — **`Stream` has no public text constructor.** `DeadLetterDemo` needs a
+  `Stream` for `DlqWriteToStream`; the `MessageDb.Message.Stream.Stream` ADT is
+  opaque and can only be built via `Stream.parseEither :: Text -> Either Text Stream`.
+  The demo parses `"demo-dlq"` at startup and crashes (with a clear error) if the
+  name is rejected — `error` is acceptable here because the stream name is a
+  compile-time literal.
+
+- 2026-04-18 — **Examples drive `source` directly rather than via `runApp`.** The
+  existing `Demo.hs` in the main package already sidesteps `Shibuya.App.runApp`
+  because composing its `Tracing` effect with `runMessageDb`'s `Trace` effect
+  explodes the effect stack. EP-5 follows the same pattern: each jitsurei
+  executable folds the adapter's `source` stream through a handler that calls
+  `finalize` directly. A true `runApp` demo is reserved for the optional
+  `ShibuyaAppMultiProcessor` milestone (M7).
 
 
 ## Decision Log
