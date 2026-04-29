@@ -95,17 +95,54 @@ in  Schema.Project::{ project =
         }
       ]
     , docs =
-      [ Schema.DocRef::{ key = "masterplan"
-        , kind = Schema.DocKind.Reference
-        , audience = Schema.DocAudience.Internal
-        , description = Some "Master plan coordinating adapter ExecPlans"
-        , location = Schema.DocLocation.LocalDir "docs/masterplans"
+      [ Schema.DocRef::{ key = "user-guide"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "User guide overview: what the adapter does and where to start"
+        , location = Schema.DocLocation.LocalFile "docs/user/README.md"
         }
-      , Schema.DocRef::{ key = "plans"
+      , Schema.DocRef::{ key = "getting-started"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Walkthrough: wire the adapter into a Haskell program that consumes one category"
+        , location = Schema.DocLocation.LocalFile "docs/user/getting-started.md"
+        }
+      , Schema.DocRef::{ key = "configuration"
         , kind = Schema.DocKind.Reference
-        , audience = Schema.DocAudience.Internal
-        , description = Some "Execution plans for adapter development"
-        , location = Schema.DocLocation.LocalDir "docs/plans"
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "MessageDbAdapterConfig field reference and defaults"
+        , location = Schema.DocLocation.LocalFile "docs/user/configuration.md"
+        }
+      , Schema.DocRef::{ key = "handler-decisions"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "AckDecision semantics: Ack, Retry, DeadLetter, and Skip"
+        , location = Schema.DocLocation.LocalFile "docs/user/handler-decisions.md"
+        }
+      , Schema.DocRef::{ key = "checkpointing"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "At-least-once delivery, checkpoint storage, and restart behavior"
+        , location = Schema.DocLocation.LocalFile "docs/user/checkpointing.md"
+        }
+      , Schema.DocRef::{ key = "consumer-groups"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Splitting a category across N cooperating adapter processes via partition routing"
+        , location = Schema.DocLocation.LocalFile "docs/user/consumer-groups.md"
+        }
+      , Schema.DocRef::{ key = "examples"
+        , kind = Schema.DocKind.Guide
+        , audience = Schema.DocAudience.User
+        , description = Some
+            "Tour of the jitsurei runnable examples (basic, retry, dead-letter, checkpoint, partitioned)"
+        , location = Schema.DocLocation.LocalFile "docs/user/examples.md"
         }
       ]
     }
