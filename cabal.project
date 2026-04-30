@@ -1,21 +1,13 @@
-index-state: 2026-02-20T19:11:05Z
+index-state: 2026-04-22T14:32:47Z
 
 with-compiler: ghc-9.12.2
 
 packages:
   ./shibuya-message-db-adapter
   ./shibuya-message-db-adapter-jitsurei
-  /Users/shinzui/Keikaku/bokuno/shibuya-project/shibuya/shibuya-core
-  /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-hs
-  /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-effectful
-  /Users/shinzui/Keikaku/work/libraries/haskell/message-db-hs-master/message-db-checkpoint-store
-  /Users/shinzui/Keikaku/bokuno/ephemeral-pg-project/ephemeral-pg
-  /Users/shinzui/Keikaku/work/libraries/haskell/tan-effectful/hasql-effectful
-  /Users/shinzui/Keikaku/work/libraries/haskell/tan-event-source
-  /Users/shinzui/Keikaku/work/libraries/haskell/tan-commons/tan-commons-config
-  /Users/shinzui/Keikaku/work/libraries/haskell/tan-commons/tan-commons-time
-  /Users/shinzui/Keikaku/work/libraries/haskell/tan-commons/tan-commons-migration
-  /Users/shinzui/Keikaku/work/libraries/haskell/tan-hasql
+
+-- shibuya-core and ephemeral-pg are pulled from Hackage (versions match what
+-- we previously consumed locally).
 
 -- hs-opentelemetry from GitHub (matching shibuya-core's pin for GHC 9.12 support)
 source-repository-package
@@ -61,7 +53,43 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/topagentnetwork/hasql-migration
-  tag: a966431d9b90ad7751d660c5b4b0787567b00472
+  tag: 4aaff6c0919d1fe8e1c248c3ce4ce05775c59c8c
+
+-- TAN private repos (HTTPS — requires GitHub credentials with
+-- topagentnetwork access for non-local builds).
+source-repository-package
+  type: git
+  location: https://github.com/topagentnetwork/message-db-hs
+  tag: 059fba11efa83b0bf08117c5875ad2da013bf3c5
+  subdir:
+    message-db-hs
+    message-db-effectful
+    message-db-checkpoint-store
+
+source-repository-package
+  type: git
+  location: https://github.com/topagentnetwork/tan-effectful
+  tag: 5e081ad8019b4731d1da37003c80aaaac6ccb5b5
+  subdir: hasql-effectful
+
+source-repository-package
+  type: git
+  location: https://github.com/topagentnetwork/tan-event-source
+  tag: d37db2de8f0a0d128d2be64327252191cf1088c5
+
+source-repository-package
+  type: git
+  location: https://github.com/topagentnetwork/tan-commons
+  tag: b3b962d95ea5c1bfaeb38b65e4231f1836683a06
+  subdir:
+    tan-commons-config
+    tan-commons-time
+    tan-commons-migration
+
+source-repository-package
+  type: git
+  location: https://github.com/topagentnetwork/tan-hasql
+  tag: 3f8773c47e1dab684b7da650f1a52b9f1df86509
 
 -- Allow newer base/ghc-prim/deepseq for packages not yet updated to GHC 9.12.
 -- Also relax the containers upper bound for message-db-effectful and
@@ -96,6 +124,12 @@ allow-newer:
 -- use any 2.1.3-only APIs).
 allow-older:
   shibuya-core:text
+
+-- crypton < 1.1.1 depends on `memory`, but hasql-migration depends on `ram`
+-- (the renamed successor). The two define distinct ByteArrayAccess classes,
+-- so Digest from crypton<1.1.1 has no ram-compatible instance.
+constraints:
+  crypton >= 1.1.1
 
 test-show-details: direct
 
