@@ -34,6 +34,11 @@ message as payload.
 * @enqueuedAt@ is the message-db @time@ (UTC).
 * @traceContext@ extracts W3C @traceparent@/@tracestate@ from the
   message's metadata JSON when present.
+* @attempt@ is @Nothing@: message-db has no native redelivery counter;
+  the adapter's retry buffer re-injects the same envelope without
+  per-message attempt tracking at this layer.
+* @attributes@ is empty: message-db is a plain Postgres event store and
+  has no broker-specific typed OTel attributes to contribute.
 * @payload@ is the original @MessageDb.Message@ so handlers keep access
   to stream name, message type, data, and metadata.
 -}
@@ -47,6 +52,8 @@ messageToEnvelope m =
         , partition = Nothing
         , enqueuedAt = Just m.time
         , traceContext = extractTraceContext m.messageMetadata
+        , attempt = Nothing
+        , attributes = mempty
         , payload = m
         }
 

@@ -68,7 +68,7 @@ library
     , message-db-effectful         ^>=0.1
     , message-db-hs                ^>=0.1
     , murmur-hash                  ^>=0.1.0
-    , shibuya-core                 ^>=0.1.0.0
+    , shibuya-core                 ^>=0.5.0.0
     , stm                          ^>=2.5
     , streamly                     ^>=0.11
     , streamly-core                ^>=0.3
