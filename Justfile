@@ -115,6 +115,13 @@ build:
 test:
     cabal test shibuya-message-db-adapter
 
+# Validate the capability catalog: mori config plus the profile-governed
+# okf bundle under docs/capabilities (evidence, log, and profile enforced).
+[group("build")]
+check-capabilities:
+    mori validate
+    okf validate docs/capabilities --profile docs/capabilities/profile.dhall --profile-enforce --log-enforce
+
 # Clean cabal build artifacts
 [group("build")]
 clean:

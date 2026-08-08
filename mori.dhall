@@ -1,6 +1,6 @@
 let Schema =
-      https://raw.githubusercontent.com/shinzui/mori-schema/9b1d6eea8027ae57576cf0712c0b9167fccbc1a9/package.dhall
-        sha256:a19f5dd9181db28ba7a6a1b77b5ab8715e81aba3e2a8f296f40973003a0b4412
+      https://raw.githubusercontent.com/shinzui/mori-schema/027403783777cbce0e87eb660a0b3d8119ebe8d2/package.dhall
+        sha256:d29ca03286afa92b7589d09b7a6d98ad8e39d11b255a4b8751f3327b0722fba3
 
 let emptyRuntime = { deployable = False, exposesApi = False }
 
@@ -143,6 +143,15 @@ in  Schema.Project::{ project =
         , description = Some
             "Tour of the jitsurei runnable examples (basic, retry, dead-letter, checkpoint, partitioned)"
         , location = Schema.DocLocation.LocalFile "docs/user/examples.md"
+        }
+      ]
+    , okfBundles =
+      [ Schema.OkfBundle::{ name = "capabilities"
+        , path = "docs/capabilities"
+        , profile = Some "docs/capabilities/profile.dhall"
+        , okfVersion = "0.2"
+        , description = Some
+            "What shibuya-message-db-adapter provides today, one concept per capability, with evidence"
         }
       ]
     }
