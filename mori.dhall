@@ -17,7 +17,7 @@ in  Schema.Project::{ project =
       , description = Some
           "message-db adapter for the Shibuya queue processing framework"
       , language = Schema.Language.Haskell
-      , lifecycle = Schema.Lifecycle.Active
+      , lifecycle = Schema.Lifecycle.Archived
       , domains = [ "concurrency", "queue-processing", "event-sourcing" ]
       , owners = [ "shinzui" ]
       }
